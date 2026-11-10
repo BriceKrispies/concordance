@@ -13,6 +13,7 @@ concordance-markdown    pulldown-cmark -> DocumentIndex (sections, claims, refer
 concordance-rust        Rust language plugin: syn + cargo metadata -> SourceIndex
 concordance-typescript  TypeScript/JavaScript language plugin: oxc + package.json -> SourceIndex
 concordance-csharp      C# language plugin: tree-sitter + .csproj/.sln -> SourceIndex
+concordance-lean        Lean 4 language plugin: lexical scanner + Lake projects + `lake build` logs -> SourceIndex
 concordance-graph       in-memory Model + reverse indexes, name resolution, neighborhoods
 concordance-reconcile   linking, Layer A structural checks, Layer D gaps, status derivation, lifecycle
 concordance-semantic    Layer B/C through the Claude Code CLI: scoped prompts, strict schemas, citation validation
@@ -34,6 +35,13 @@ extraction and normalisation of documented signatures. The engine builds the reg
 (`concordance_engine::languages()`); nothing else names a language. Symbol kinds and fact kinds are
 shared across languages (a TypeScript `throw` and a Rust `panic!` are both failure sites), so
 constraint claims, requirement verification and status rules work the same for every language.
+
+The Lean plugin has no parser behind it: `concordance-lean` scans tokens (nested comments, string
+and character literals, `«»` names) and finds declarations by their keywords. Toolchains whose
+output names modules and diagnostics instead of tests plug in through
+`LanguagePlugin::build_log_outcomes`: the engine hands a recorded log and the language's indexed
+test symbols (`TestSite`: result name, file, range) to the plugin, which returns outcomes that are
+merged into the run's results. Lean uses it to turn `lake build` output into per-theorem outcomes.
 
 Dependencies point downward only. `core` knows no HTTP, SQL, Markdown AST or `syn`. The self-scan
 (`docs/specifications/architecture.md`) checks part of this layering against Cargo metadata and

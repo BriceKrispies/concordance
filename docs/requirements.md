@@ -62,6 +62,14 @@ C# tests (methods marked `[Fact]`, `[Theory]`, `[Test]`, `[TestCase]` or `[TestM
 public void Rejects_level_above_100() { ... }
 ```
 
+Lean theorems (`theorem` / `lemma`) are tests when they carry `Verifies:` in their `/-- -/` doc
+comment or in the `--` comment lines directly above:
+
+```lean
+/-- Verifies: VOL-001 -/
+theorem clamp_le_max (n : Nat) : clampLevel n ≤ maxLevel := by ...
+```
+
 ## Test results
 
 Concordance does not run the analysed repository's tests. Point it at their output:
@@ -77,6 +85,10 @@ libtest JSON lines (`-Z unstable-options --format json`), cargo-nextest output, 
 (`✓ file > describe > case`). For .NET, `dotnet test --logger trx` (Visual Studio TRX) and
 `--logger junit` output are read; results are named `Namespace::Class::Method`, and the rows of a
 `[Theory]` count as one test whose worst outcome wins.
+For Lean, a `lake build` log (`lake build 2>&1 | tee build.log`): a tagged
+theorem passes when its module built and no error or `declaration uses 'sorry'` warning lies inside
+the theorem's lines; it fails when one does, or when its module failed to build; a module the log
+does not mention gives no result.
 Result names are matched to test functions by their module path. The file is watched, so writing
 a new run re-derives every requirement finding.
 

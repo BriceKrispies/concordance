@@ -11,7 +11,9 @@
 //! and the reconciler (signature comparison).
 
 use crate::code::{SourceIndex, WorkspaceInfo};
+use crate::testrun::{TestOutcome, TestSite};
 use crate::RepoPath;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -52,6 +54,13 @@ pub trait LanguagePlugin: Send + Sync {
     /// The signature without visibility/export qualifiers (documentation often omits them).
     fn strip_visibility(&self, sig: &str) -> String {
         sig.to_string()
+    }
+    /// Outcomes for `tests` (this language's indexed test symbols) derived from a
+    /// recorded build log, for toolchains whose output names modules and diagnostics
+    /// instead of tests (Lean's `lake build`). Keys are `TestSite::name`. A log this
+    /// language does not recognize yields nothing.
+    fn build_log_outcomes(&self, _log: &str, _tests: &[TestSite]) -> BTreeMap<String, TestOutcome> {
+        BTreeMap::new()
     }
 }
 

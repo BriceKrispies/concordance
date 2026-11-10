@@ -335,6 +335,7 @@ dependencies = [
  "concordance-csharp",
  "concordance-events",
  "concordance-graph",
+ "concordance-lean",
  "concordance-markdown",
  "concordance-reconcile",
  "concordance-rust",
@@ -364,6 +365,14 @@ dependencies = [
  "concordance-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "concordance-lean"
+version = "0.1.0"
+dependencies = [
+ "concordance-core",
+ "toml",
 ]
 
 [[package]]

@@ -211,6 +211,7 @@ pub fn languages() -> &'static concordance_core::lang::Languages {
             std::sync::Arc::new(concordance_rust::RustPlugin),
             std::sync::Arc::new(concordance_typescript::TypeScriptPlugin),
             std::sync::Arc::new(concordance_csharp::CSharpPlugin),
+            std::sync::Arc::new(concordance_lean::LeanPlugin),
         ])
     })
 }
