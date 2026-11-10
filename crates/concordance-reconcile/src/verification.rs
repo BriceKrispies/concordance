@@ -30,8 +30,10 @@ use concordance_core::evidence::{
 use concordance_core::finding::{
     EvidenceQuality, Finding, FindingCategory, FindingStatus, FindingSubject, Lifecycle, Severity,
 };
+use concordance_core::graph::EdgeKind;
 use concordance_core::graph::NodeRef;
 use concordance_core::testrun::TestOutcome;
+use concordance_core::{ClaimId, SourceRange, SymbolId};
 use concordance_graph::Model;
 
 /// Number of obligation claims that carry requirement `id`.
@@ -216,4 +218,217 @@ pub fn verification_findings(
             (f, ev)
         })
         .collect()
+}
+
+/// Whether `s` is test scaffolding rather than the code under test: a test, an item under
+/// `cfg(test)`, or anything in a `tests` directory.
+fn is_test_support(model: &Model, s: &Symbol) -> bool {
+    s.is_test
+        || s.cfg.iter().any(|c| c.contains("test"))
+        || model.files.get(&s.file).is_some_and(|f| {
+            f.path.as_str().starts_with("tests/") || f.path.as_str().contains("/tests/")
+        })
+}
+
+/// What a proof reaches through resolved calls. Test scaffolding is followed (a helper that
+/// drives the boundary is part of the proof); other non-public callees are internals.
+pub struct ProofReach {
+    pub reaches_public: bool,
+    pub internals: Vec<SymbolId>,
+}
+
+pub fn proof_reach(model: &Model, proof: &Symbol) -> ProofReach {
+    let mut reach = ProofReach {
+        reaches_public: false,
+        internals: Vec::new(),
+    };
+    let mut seen: std::collections::BTreeSet<SymbolId> = std::collections::BTreeSet::new();
+    seen.insert(proof.id.clone());
+    let mut frontier = vec![proof.id.clone()];
+    for _depth in 0..6 {
+        let mut next = Vec::new();
+        for id in &frontier {
+            for e in model.edges_from(&NodeRef::Symbol(id.clone())) {
+                if e.kind != EdgeKind::Calls {
+                    continue;
+                }
+                let Some(NodeRef::Symbol(t)) = &e.to else {
+                    continue;
+                };
+                let Some(target) = model.symbols.get(t) else {
+                    continue;
+                };
+                if !seen.insert(t.clone()) {
+                    continue;
+                }
+                if target.is_public_api {
+                    reach.reaches_public = true;
+                } else if is_test_support(model, target) {
+                    next.push(t.clone());
+                } else {
+                    reach.internals.push(t.clone());
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    reach
+}
+
+/// Proof-rule findings (`docs/spec-lint.md`): a requirement with more than one declaring
+/// proof, and a proof that calls only non-public symbols and so bypasses the boundary.
+pub fn proof_rule_findings(model: &Model, ctx: &BatchContext) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut ids: Vec<String> = model
+        .requirement_claims()
+        .filter_map(|c| c.requirement.as_ref().map(|r| r.id.clone()))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    for req in ids {
+        let mut proofs: Vec<&Symbol> = model.verifiers_of(&req).collect();
+        proofs.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut claims: Vec<&Claim> = model.claims_of_requirement(&req).collect();
+        claims.sort_by(|a, b| a.id.cmp(&b.id));
+        let authority = claims
+            .first()
+            .map(|c| c.authority)
+            .unwrap_or(Authority::Unknown);
+        let claim_ids: Vec<ClaimId> = claims.iter().map(|c| c.id.clone()).collect();
+        let spec_loc: Vec<SourceRange> = claims.iter().take(1).map(|c| c.range.clone()).collect();
+        if proofs.len() > 1 {
+            let subject = FindingSubject::ProofRule {
+                requirement: req.clone(),
+                rule: "multiple_proofs".into(),
+                symbol: None,
+            };
+            let names: Vec<String> = proofs
+                .iter()
+                .map(|p| format!("`{}`", p.qualified_name()))
+                .collect();
+            let mut locations = spec_loc.clone();
+            locations.extend(proofs.iter().map(|p| p.range.clone()));
+            out.push(proof_finding(
+                model,
+                ctx,
+                subject,
+                (
+                    FindingStatus::Ambiguous,
+                    FindingCategory::UnclearDocumentation,
+                    Severity::Low,
+                ),
+                format!("Requirement `{req}` has {} proofs", proofs.len()),
+                format!(
+                    "{} items declare `Verifies: {req}`: {}. Each requirement has exactly one proof that declares it; keep the one that drives the boundary and drop the `Verifies:` line from the rest.",
+                    proofs.len(),
+                    names.join(", ")
+                ),
+                (
+                    claim_ids.clone(),
+                    proofs.iter().map(|p| p.id.clone()).collect(),
+                ),
+                locations,
+                authority,
+            ));
+        }
+        for p in proofs {
+            let reach = proof_reach(model, p);
+            if reach.reaches_public || reach.internals.is_empty() {
+                continue;
+            }
+            let subject = FindingSubject::ProofRule {
+                requirement: req.clone(),
+                rule: "bypasses_boundary".into(),
+                symbol: Some(p.id.clone()),
+            };
+            let called: Vec<String> = reach
+                .internals
+                .iter()
+                .filter_map(|i| model.symbols.get(i))
+                .map(|s| format!("`{}`", s.qualified_name()))
+                .take(5)
+                .collect();
+            let mut locations = spec_loc.clone();
+            locations.push(p.range.clone());
+            out.push(proof_finding(
+                model,
+                ctx,
+                subject,
+                (
+                    FindingStatus::Violated,
+                    FindingCategory::StructuralContradiction,
+                    Severity::Medium,
+                ),
+                format!(
+                    "Proof `{}` of `{req}` calls no public API",
+                    concordance_graph::truncate(&p.qualified_name(), 80)
+                ),
+                format!(
+                    "`{}` declares `Verifies: {req}` but every call it makes that resolves to indexed code goes to a non-public symbol ({}). A proof calls what the boundary of the requirement names and nothing private: a correct rewrite of the internals would break it.",
+                    p.qualified_name(),
+                    called.join(", ")
+                ),
+                (claim_ids.clone(), vec![p.id.clone()]),
+                locations,
+                authority,
+            ));
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn proof_finding(
+    model: &Model,
+    ctx: &BatchContext,
+    subject: FindingSubject,
+    (status, category, severity): (FindingStatus, FindingCategory, Severity),
+    title: String,
+    explanation: String,
+    (claims, symbols): (Vec<ClaimId>, Vec<SymbolId>),
+    locations: Vec<SourceRange>,
+    authority: Authority,
+) -> Finding {
+    let (crate_name, module) = locate(model, &symbols);
+    Finding {
+        id: subject.finding_id(),
+        subject,
+        status,
+        category,
+        severity,
+        title,
+        explanation,
+        claims,
+        symbols,
+        documents: vec![],
+        proposals: proposals_for(
+            status,
+            category,
+            authority,
+            locations.clone(),
+            ctx.semantic_enabled,
+        ),
+        locations,
+        supporting: vec![],
+        contradicting: vec![],
+        confidence: 0.9,
+        quality: EvidenceQuality::Proven,
+        methods: vec![MethodKind::Structural],
+        limitations: vec![
+            "calls are resolved syntactically; calls through trait objects or closures are not followed"
+                .into(),
+        ],
+        dependencies: vec![],
+        revision: ctx.revision,
+        introduced_in: ctx.revision,
+        introduced_by: ctx.changed_files.clone(),
+        first_seen: ctx.now,
+        last_updated: ctx.now,
+        lifecycle: Lifecycle::Open,
+        crate_name,
+        module,
+    }
 }

@@ -5,6 +5,7 @@ concordance serve  [common] [--port N] [--host ADDR] [--no-watch]
 concordance scan   [common] [--json | --jsonl] [--force] [--fail-on none|proven|violated] [-v] [--include-resolved]
 concordance watch  [common] [--jsonl]
 concordance report [common] [--format text|json] [--fail-on ...] [-v] [--include-resolved]
+concordance lint   [common] [--strict] [--json]     # requirement format, see docs/spec-lint.md
 
 common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
         --config FILE  --state-dir DIR  --semantic | --no-semantic  --model ALIAS
@@ -21,7 +22,7 @@ schema (it is intentionally small: roots, excludes, state dir, authority globs, 
 | Code | Meaning |
 |---|---|
 | 0 | Success. With `--fail-on`, the gate passed. |
-| 1 | The `--fail-on` gate failed: `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge. |
+| 1 | The `--fail-on` gate failed (for `lint`: at least one error, or with `--strict` any finding): `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge. |
 | 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`). |
 | 3 | Runtime error (state database, I/O, cannot bind the port). |
 

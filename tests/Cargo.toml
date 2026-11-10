@@ -11,6 +11,7 @@ concordance-core.workspace = true
 concordance-engine.workspace = true
 concordance-events.workspace = true
 concordance-graph.workspace = true
+concordance-lint.workspace = true
 concordance-semantic.workspace = true
 concordance-server.workspace = true
 tokio.workspace = true

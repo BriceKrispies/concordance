@@ -26,6 +26,10 @@ cannot say which of several bundled obligations it exercised, so for a heading t
 one obligation, test results are recorded but never verify or violate a claim on their own; the
 finding says the requirement should be split.
 
+A bold-ID requirement may carry attribute bullets directly after it (`Verify:`, `Boundary:`,
+`Traces:`, `Rationale:`, `Depends:`, `Status:`). They are stored on the requirement, not extracted as
+claims, and `concordance lint` checks them: see [spec-lint.md](spec-lint.md).
+
 An ID is an upper-case prefix, optional upper-case/digit segments and a number with an optional
 dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`. IDs are recognised only where they are
 defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
@@ -42,6 +46,10 @@ fn nested_comment_ends_at_the_balancing_close() { ... }
 A `Verifies:` line in a test function's doc comment links it to one or more requirements
 (`Verifies: LANG-006.3, LANG-006.4`). A `Verifies:` naming an ID that no specification defines is
 reported as a violated finding on the test.
+
+Beyond the unknown ID, `scan` reports two more breaches of the proof rules as findings
+(see [spec-lint.md](spec-lint.md#proof-checks-in-scan)): a requirement declared by more than one
+proof, and a proof whose resolved calls all go to non-public symbols.
 
 TypeScript/JavaScript tests (`it(...)` / `test(...)`, inside any `describe(...)`) take the
 `Verifies:` line from the comment directly above the call:

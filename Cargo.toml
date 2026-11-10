@@ -18,6 +18,7 @@ concordance-graph = { path = "crates/concordance-graph" }
 concordance-storage = { path = "crates/concordance-storage" }
 concordance-reconcile = { path = "crates/concordance-reconcile" }
 concordance-semantic = { path = "crates/concordance-semantic" }
+concordance-lint = { path = "crates/concordance-lint" }
 concordance-engine = { path = "crates/concordance-engine" }
 concordance-events = { path = "crates/concordance-events" }
 concordance-server = { path = "crates/concordance-server" }

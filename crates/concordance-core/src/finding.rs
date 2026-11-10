@@ -166,6 +166,14 @@ pub enum FindingSubject {
         symbol: SymbolId,
         requirement: String,
     },
+    /// A proof-rule breach (see `docs/spec-lint.md`): `multiple_proofs` (a requirement with more
+    /// than one declaring proof; no `symbol`) or `bypasses_boundary` (a proof that calls only
+    /// internals; `symbol` is the proof).
+    ProofRule {
+        requirement: String,
+        rule: String,
+        symbol: Option<SymbolId>,
+    },
 }
 
 impl FindingSubject {
@@ -188,6 +196,16 @@ impl FindingSubject {
                 symbol,
                 requirement,
             } => FindingId::from_key(&["verification", symbol.as_str(), requirement]),
+            FindingSubject::ProofRule {
+                requirement,
+                rule,
+                symbol,
+            } => FindingId::from_key(&[
+                "proofrule",
+                rule,
+                requirement,
+                symbol.as_ref().map(|s| s.as_str()).unwrap_or(""),
+            ]),
         }
     }
 }

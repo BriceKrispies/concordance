@@ -483,6 +483,9 @@ pub async fn finding(
             FindingSubject::ProseReference { document, .. } => {
                 vec![NodeRef::Document(document.clone())]
             }
+            FindingSubject::ProofRule { symbol, .. } => {
+                symbol.iter().map(|s| NodeRef::Symbol(s.clone())).collect()
+            }
         };
         let wanted: BTreeSet<_> = f
             .supporting

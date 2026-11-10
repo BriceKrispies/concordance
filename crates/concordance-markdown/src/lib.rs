@@ -12,6 +12,7 @@ mod inline;
 mod lines;
 mod parse;
 mod refs;
+mod requirements;
 mod sections;
 mod text;
 
@@ -22,7 +23,7 @@ use concordance_core::doc::{AuthorityAssessment, DocumentIndex};
 use concordance_core::lang::Languages;
 
 /// Bump when extraction output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "md-6";
+pub const EXTRACTOR_VERSION: &str = "md-7";
 use concordance_core::RepoPath;
 
 /// Extract sections, claims, references and authority from one Markdown file.
@@ -41,4 +42,19 @@ pub fn index_document(
 /// GitHub-style heading anchor: lowercase, spaces -> `-`, drop punctuation except `-`/`_`.
 pub fn slugify(heading: &str) -> String {
     text::slugify(heading)
+}
+
+pub use requirements::{
+    is_strict_id, structure, AttributeItem, CodeSpan, LooseText, RequirementBlock, SpecStructure,
+};
+
+/// What an inline code span refers to, if it looks like a code reference (a symbol path,
+/// an identifier, a repository file). Spans such as `tool build` or `--out` are not references.
+pub fn classify_code_span(
+    code: &str,
+) -> Option<(
+    concordance_core::doc::ReferenceTarget,
+    concordance_core::doc::ReferenceStrength,
+)> {
+    refs::classify_code(code)
 }

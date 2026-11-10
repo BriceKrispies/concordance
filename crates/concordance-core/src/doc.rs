@@ -168,6 +168,72 @@ pub struct RequirementRef {
     /// `inline`: the ID opens this claim's own paragraph (one requirement, one statement).
     /// `heading`: the ID is a section heading; every claim under it shares the ID.
     pub form: RequirementForm,
+    /// Attribute list items directly after a bold opener (`Verify:`, `Boundary:`, ...).
+    /// Empty for heading-form requirements.
+    #[serde(default, skip_serializing_if = "RequirementAttributes::is_empty")]
+    pub attributes: RequirementAttributes,
+}
+
+/// The attribute bullets of a requirement, verbatim after their `Name:` label. They belong to
+/// the requirement and are never extracted as claims of their own.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RequirementAttributes {
+    pub verify: Option<String>,
+    pub boundary: Option<String>,
+    pub traces: Option<String>,
+    pub rationale: Option<String>,
+    pub depends: Option<String>,
+    pub status: Option<String>,
+}
+
+impl RequirementAttributes {
+    pub const NAMES: [&'static str; 6] = [
+        "Verify",
+        "Boundary",
+        "Traces",
+        "Rationale",
+        "Depends",
+        "Status",
+    ];
+
+    pub fn is_empty(&self) -> bool {
+        self.verify.is_none()
+            && self.boundary.is_none()
+            && self.traces.is_none()
+            && self.rationale.is_none()
+            && self.depends.is_none()
+            && self.status.is_none()
+    }
+
+    /// The value of attribute `name` (one of [`Self::NAMES`]).
+    pub fn get(&self, name: &str) -> Option<&str> {
+        match name {
+            "Verify" => self.verify.as_deref(),
+            "Boundary" => self.boundary.as_deref(),
+            "Traces" => self.traces.as_deref(),
+            "Rationale" => self.rationale.as_deref(),
+            "Depends" => self.depends.as_deref(),
+            "Status" => self.status.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Set attribute `name`; the first occurrence wins. Returns whether `name` is known.
+    pub fn set(&mut self, name: &str, value: String) -> bool {
+        let slot = match name {
+            "Verify" => &mut self.verify,
+            "Boundary" => &mut self.boundary,
+            "Traces" => &mut self.traces,
+            "Rationale" => &mut self.rationale,
+            "Depends" => &mut self.depends,
+            "Status" => &mut self.status,
+            _ => return false,
+        };
+        if slot.is_none() {
+            *slot = Some(value);
+        }
+        true
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
