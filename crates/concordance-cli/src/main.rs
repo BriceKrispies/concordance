@@ -23,7 +23,7 @@ use std::process::ExitCode;
 #[command(
     name = "concordance",
     version,
-    about = "Continuous specification <-> Rust code reconciliation"
+    about = "Continuous reconciliation of Markdown specifications with source code (Rust, TypeScript, C#, Lean 4)"
 )]
 struct Cli {
     #[command(subcommand)]
