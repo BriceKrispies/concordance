@@ -1,0 +1,10 @@
+[package]
+name = "concordance-csharp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+tree-sitter.workspace = true
+tree-sitter-c-sharp.workspace = true

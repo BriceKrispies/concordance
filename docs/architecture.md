@@ -12,6 +12,7 @@ concordance-core        domain model: ids, claims, symbols, edges, evidence, fin
 concordance-markdown    pulldown-cmark -> DocumentIndex (sections, claims, references, authority)
 concordance-rust        Rust language plugin: syn + cargo metadata -> SourceIndex
 concordance-typescript  TypeScript/JavaScript language plugin: oxc + package.json -> SourceIndex
+concordance-csharp      C# language plugin: tree-sitter + .csproj/.sln -> SourceIndex
 concordance-graph       in-memory Model + reverse indexes, name resolution, neighborhoods
 concordance-reconcile   linking, Layer A structural checks, Layer D gaps, status derivation, lifecycle
 concordance-semantic    Layer B/C through the Claude Code CLI: scoped prompts, strict schemas, citation validation

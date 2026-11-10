@@ -10,6 +10,10 @@
 //! * JUnit XML (vitest `--reporter=junit`, most CI reporters): `<testcase name="a > b">`
 //!   with `<failure>`/`<error>`/`<skipped>` children
 //! * vitest / jest text: `✓ src/x.test.ts > describe > case`, `× ...` / `✗ ...`
+//! * TRX (Visual Studio test results, `dotnet test --logger trx`): `<UnitTestResult
+//!   testName=".." outcome="Passed">`, named by the method's `Namespace.Class.Method`
+//!   from the matching `<TestMethod>` definition. The .NET JUnit logger is read as JUnit
+//!   (`classname` + `name` become `Namespace::Class::Method`).
 //!
 //! Names are normalized to `::`-separated segments: `describe > case` -> `describe::case`.
 //!
@@ -73,6 +77,11 @@ pub fn parse(text: &str) -> BTreeMap<String, TestOutcome> {
             put(name, o);
         }
     }
+    if text.contains("<UnitTestResult") {
+        for (name, o) in parse_trx(text) {
+            put(name, o);
+        }
+    }
     for line in text.lines() {
         let l = line.trim();
         if let Some((name, o)) = parse_json(l)
@@ -125,6 +134,10 @@ fn parse_junit(text: &str) -> Vec<(String, TestOutcome)> {
             &rest[tag_end..close]
         };
         if let Some(name) = attr(tag, "name") {
+            let name = match attr(tag, "classname") {
+                Some(class) => dotnet_name(&class, &name).unwrap_or(name),
+                None => name,
+            };
             let o = if body.contains("<failure") || body.contains("<error") {
                 TestOutcome::Failed
             } else if body.contains("<skipped") {
@@ -135,6 +148,93 @@ fn parse_junit(text: &str) -> Vec<(String, TestOutcome)> {
             out.push((segments(&name), o));
         }
         rest = &rest[tag_end..];
+    }
+    out
+}
+
+/// `Ns.Class` + `Method(x: 1)` (or an already qualified `Ns.Class.Method`) ->
+/// `Ns::Class::Method`, when `class` looks like a .NET type name (dotted, PascalCase last
+/// segment). Anything else (file paths, vitest suites) is left to the caller.
+fn dotnet_name(class: &str, name: &str) -> Option<String> {
+    let class = class
+        .split(',')
+        .next()
+        .unwrap_or(class)
+        .trim()
+        .replace('+', ".");
+    let last = class.rsplit('.').next().unwrap_or("");
+    let ident = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+    };
+    if !class.contains('.') || !ident(&class) || !last.starts_with(|c: char| c.is_uppercase()) {
+        return None;
+    }
+    let core = name.split('(').next().unwrap_or(name).trim();
+    if !ident(core) {
+        return None;
+    }
+    let full = if core.starts_with(&format!("{class}.")) {
+        core.to_string()
+    } else {
+        format!("{class}.{core}")
+    };
+    Some(full.replace('.', "::"))
+}
+
+fn trx_outcome(o: &str) -> TestOutcome {
+    match o.to_ascii_lowercase().as_str() {
+        "passed" | "passedbutrunaborted" => TestOutcome::Passed,
+        "failed" | "error" | "timeout" | "aborted" | "disconnected" | "warning" => {
+            TestOutcome::Failed
+        }
+        _ => TestOutcome::Ignored, // NotExecuted, Inconclusive, Pending, NotRunnable, ...
+    }
+}
+
+/// Visual Studio TRX: results are named by their definition's `className` + method
+/// (`Ns.Class.Method`), falling back to `testName` with any `(data row)` removed.
+fn parse_trx(text: &str) -> Vec<(String, TestOutcome)> {
+    // testId -> Ns::Class::Method, from `<UnitTest id=".."> .. <TestMethod className name/>`.
+    let mut defs: BTreeMap<String, String> = BTreeMap::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("<UnitTest ") {
+        rest = &rest[i + 1..];
+        let Some(tag_end) = rest.find('>') else { break };
+        let tag = &rest[..tag_end];
+        let close = rest.find("</UnitTest>").unwrap_or(rest.len());
+        let body = &rest[tag_end..close.max(tag_end)];
+        if let (Some(id), Some(mi)) = (attr(tag, "id"), body.find("<TestMethod")) {
+            let m = &body[mi..];
+            let m = &m[..m.find('>').unwrap_or(m.len())];
+            if let (Some(class), Some(name)) = (attr(m, "className"), attr(m, "name")) {
+                let class = class
+                    .split(',')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .replace('+', ".");
+                defs.insert(id, format!("{class}.{name}").replace('.', "::"));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("<UnitTestResult ") {
+        rest = &rest[i + 1..];
+        let Some(tag_end) = rest.find('>') else { break };
+        let tag = &rest[..tag_end];
+        let (Some(name), Some(outcome)) = (attr(tag, "testName"), attr(tag, "outcome")) else {
+            continue;
+        };
+        let full = attr(tag, "testId")
+            .and_then(|id| defs.get(&id).cloned())
+            .unwrap_or_else(|| {
+                let core = name.split('(').next().unwrap_or(&name).trim();
+                core.replace('.', "::")
+            });
+        out.push((full, trx_outcome(&outcome)));
     }
     out
 }
@@ -300,5 +400,51 @@ test result: FAILED. 1 passed; 1 failed
             Some(&TestOutcome::Passed)
         );
         assert_eq!(r.get("Mixer::clamps"), Some(&TestOutcome::Failed));
+    }
+
+    #[test]
+    fn parses_trx_and_dotnet_junit() {
+        let trx = r#"<?xml version="1.0"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult executionId="e1" testId="t1" testName="Fixture.MixerTests.Rejects_level_above_100" outcome="Passed" />
+    <UnitTestResult executionId="e2" testId="t2" testName="Fixture.MixerTests.Theory(x: 1)" outcome="Passed" />
+    <UnitTestResult executionId="e3" testId="t2" testName="Fixture.MixerTests.Theory(x: 2)" outcome="Failed" />
+    <UnitTestResult executionId="e4" testId="t3" testName="Skipped one" outcome="NotExecuted" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Fixture.MixerTests.Rejects_level_above_100" id="t1">
+      <TestMethod codeBase="Fixture.dll" className="Fixture.MixerTests" name="Rejects_level_above_100" />
+    </UnitTest>
+    <UnitTest name="Theory" id="t2">
+      <TestMethod codeBase="Fixture.dll" className="Fixture.MixerTests" name="Theory" />
+    </UnitTest>
+  </TestDefinitions>
+</TestRun>"#;
+        let r = parse(trx);
+        assert_eq!(
+            r.get("Fixture::MixerTests::Rejects_level_above_100"),
+            Some(&TestOutcome::Passed)
+        );
+        assert_eq!(
+            r.get("Fixture::MixerTests::Theory"),
+            Some(&TestOutcome::Failed),
+            "worst data row"
+        );
+        assert_eq!(r.get("Skipped one"), Some(&TestOutcome::Ignored));
+
+        let junit = r#"<testsuites><testsuite name="Fixture.dll">
+  <testcase classname="Fixture.MixerTests" name="Fixture.MixerTests.Rejects_level_above_100" />
+  <testcase classname="Fixture.MixerTests" name="Clamps"><failure message="x"/></testcase>
+</testsuite></testsuites>"#;
+        let r = parse(junit);
+        assert_eq!(
+            r.get("Fixture::MixerTests::Rejects_level_above_100"),
+            Some(&TestOutcome::Passed)
+        );
+        assert_eq!(
+            r.get("Fixture::MixerTests::Clamps"),
+            Some(&TestOutcome::Failed)
+        );
     }
 }

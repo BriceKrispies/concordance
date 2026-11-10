@@ -9,6 +9,7 @@ concordance-core.workspace = true
 concordance-markdown.workspace = true
 concordance-rust.workspace = true
 concordance-typescript.workspace = true
+concordance-csharp.workspace = true
 concordance-graph.workspace = true
 concordance-storage.workspace = true
 concordance-reconcile.workspace = true

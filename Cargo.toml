@@ -14,6 +14,7 @@ concordance-core = { path = "crates/concordance-core" }
 concordance-markdown = { path = "crates/concordance-markdown" }
 concordance-rust = { path = "crates/concordance-rust" }
 concordance-typescript = { path = "crates/concordance-typescript" }
+concordance-csharp = { path = "crates/concordance-csharp" }
 concordance-graph = { path = "crates/concordance-graph" }
 concordance-storage = { path = "crates/concordance-storage" }
 concordance-reconcile = { path = "crates/concordance-reconcile" }
@@ -43,6 +44,8 @@ oxc_parser = "=0.150.0"
 oxc_ast = "=0.150.0"
 oxc_ast_visit = "=0.150.0"
 oxc_span = "=0.150.0"
+tree-sitter = "=0.25.2"
+tree-sitter-c-sharp = "=0.23.5"
 
 [profile.dev.package."*"]
 opt-level = 1

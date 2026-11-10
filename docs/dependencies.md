@@ -9,6 +9,7 @@ Every external crate has a concrete job that would otherwise be wasteful or risk
 | `pulldown-cmark` | Markdown parsing with source offsets | Parsing Markdown with regexes is explicitly out of scope |
 | `syn` (+ `proc-macro2` span-locations, `quote`) | Rust parsing with line/column spans; rendering signatures | Writing a Rust parser is out of scope |
 | `oxc_parser`, `oxc_ast`, `oxc_ast_visit`, `oxc_allocator`, `oxc_span` (pinned `=0.150.0`) | TypeScript/JavaScript parsing with byte spans and an AST visitor | A TypeScript parser is out of scope; oxc is pure Rust (no Node, no C toolchain) and fast. Pinned because its API changes between minor versions |
+| `tree-sitter`, `tree-sitter-c-sharp` (pinned `=0.25.2`, `=0.23.5`) | C# parsing with byte spans and a concrete syntax tree | A C# parser is out of scope; there is no pure-Rust C# parser. Both releases are older than two weeks (published before 2026-10-25) and are pinned exactly because grammar node names change between releases. The grammar crate compiles its C parser with `cc`, so a C compiler is needed to build |
 | `rusqlite` (bundled) | SQLite persistence without a system install | No database engine in std |
 | `tokio` | Async runtime, process spawning with timeouts and kill, sync primitives | Needed by axum; process cancellation |
 | `axum` (+ its `hyper`/`tower` stack) | HTTP/1.1 server, routing, SSE | A custom HTTP framework is out of scope |

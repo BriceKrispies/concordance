@@ -53,6 +53,15 @@ describe("Mixer", () => {
 });
 ```
 
+C# tests (methods marked `[Fact]`, `[Theory]`, `[Test]`, `[TestCase]` or `[TestMethod]`) take the
+`Verifies:` line from their `///` XML doc comment or the `//` comment directly above:
+
+```csharp
+// Verifies: VOL-001
+[Fact]
+public void Rejects_level_above_100() { ... }
+```
+
 ## Test results
 
 Concordance does not run the analysed repository's tests. Point it at their output:
@@ -65,7 +74,9 @@ concordance serve --config concordance.toml --test-results C:/ci/tests.txt
 or `test_results = ["C:/ci/tests.txt"]` in the config file. Accepted, mixed freely: libtest text,
 libtest JSON lines (`-Z unstable-options --format json`), cargo-nextest output, JUnit XML
 (`vitest run --reporter=junit --outputFile=...`, most CI reporters) and vitest/jest text output
-(`✓ file > describe > case`).
+(`✓ file > describe > case`). For .NET, `dotnet test --logger trx` (Visual Studio TRX) and
+`--logger junit` output are read; results are named `Namespace::Class::Method`, and the rows of a
+`[Theory]` count as one test whose worst outcome wins.
 Result names are matched to test functions by their module path. The file is watched, so writing
 a new run re-derives every requirement finding.
 
