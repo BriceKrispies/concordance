@@ -1,6 +1,7 @@
 # Expected: lean
 
-A Lake package (`lakefile.lean`, `lean-toolchain`) checked through the Lean plugin. Lake
+A Lake package (`lakefile.lean`, `lean-toolchain`) checked through the Lean plugin. The `lake-real-*.log` files are
+real `lake build` output (Lean v4.9.0 on Windows); the other logs are hand-written edge cases. Lake
 build logs are ingested as test results (`logs/*.log`, copied to the configured results file).
 
 | Spec statement | Expected finding |
@@ -26,3 +27,7 @@ Rows that name a results file install it as the test-results file before the sca
 | sorry-leaves-max-verified | RES-001 | logs/lake-sorry.log | SHALL never return a level above | verified |  |  |
 | sorry-violates-idempotent | RES-001 | logs/lake-sorry.log | SHALL be idempotent | violated | test_failure |  |
 | failed-build-violates-max | RES-001 | logs/lake-failed.log | SHALL never return a level above | violated | test_failure |  |
+| real-sorry-verifies-max | RES-001 | logs/lake-real-sorry.log | SHALL never return a level above | verified |  |  |
+| real-sorry-violates-idempotent | RES-001 | logs/lake-real-sorry.log | SHALL be idempotent | violated | test_failure |  |
+| real-failed-violates-max | RES-001 | logs/lake-real-failed.log | SHALL never return a level above | violated | test_failure |  |
+| real-failed-still-violates-idempotent | RES-001 | logs/lake-real-failed.log | SHALL be idempotent | violated | test_failure |  |

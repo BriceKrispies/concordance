@@ -1,0 +1,13 @@
+✖ [1/3] Building Volume.Mixer
+trace: .> LEAN_PATH=.\.\.lake\build\lib PATH C:\Users\user\.elan\toolchains\leanprover--lean4---v4.9.0\bin\lean.exe .\.\.\.\Volume\Mixer.lean -R .\.\.\. -o .\.\.lake\build\lib\Volume\Mixer.olean -i .\.\.lake\build\lib\Volume\Mixer.ilean -c .\.\.lake\build\ir\Volume\Mixer.c --json
+error: .\.\.\.\Volume\Mixer.lean:17:2: The rfl tactic failed. Possible reasons:
+- The goal is not a reflexive relation (neither `=` nor a relation with a @[refl] lemma).
+- The arguments of the relation are not equal.
+Try using the reflexivitiy lemma for your relation explicitly, e.g. `exact Eq.rfl`.
+n : Nat
+⊢ (if n > maxLevel then maxLevel else n) ≤ maxLevel
+warning: .\.\.\.\Volume\Mixer.lean:20:8: declaration uses 'sorry'
+error: Lean exited with code 1
+Some builds logged failures:
+- Volume.Mixer
+error: build failed
