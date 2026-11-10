@@ -751,6 +751,7 @@ impl<'t> Cx<'t> {
         // (first token, names, colon/binder index)
         let mut found: Vec<(usize, Vec<String>, usize)> = Vec::new();
         let mut field_col: Option<u32> = None;
+        let mut fields_end = end_tok;
         let mut depth = 0usize;
         let mut j = hend + 1;
         while j < end_tok {
@@ -761,6 +762,11 @@ impl<'t> Cx<'t> {
                 depth = depth.saturating_sub(1);
             }
             let tk = &self.src.lx.toks[j];
+            // A `deriving` clause ends the fields: the last field's type stops before it.
+            if depth == 0 && tk.first_on_line && w == "deriving" {
+                fields_end = j;
+                break;
+            }
             if depth == 0
                 && tk.first_on_line
                 && tk.kind == TokKind::Ident
@@ -768,9 +774,6 @@ impl<'t> Cx<'t> {
                 && !NOT_FIELD.contains(&w.as_str())
                 && field_col.is_none_or(|c| c == tk.col)
             {
-                if w == "deriving" {
-                    break;
-                }
                 let mut k = j;
                 let mut names = Vec::new();
                 while k < end_tok && self.src.is_ident(k) && !self.src.lx.toks[k].first_on_line
@@ -791,7 +794,7 @@ impl<'t> Cx<'t> {
             j += 1;
         }
         for (n, (start, names, k)) in found.iter().enumerate() {
-            let mut stop = found.get(n + 1).map_or(end_tok, |f| f.0);
+            let mut stop = found.get(n + 1).map_or(fields_end, |f| f.0);
             // Cut at a `:=` default value outside brackets.
             let mut d = 0usize;
             for q in *k..stop {
