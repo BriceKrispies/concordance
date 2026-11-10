@@ -11,6 +11,7 @@ concordance-server.workspace = true
 concordance-events.workspace = true
 concordance-storage.workspace = true
 concordance-graph.workspace = true
+concordance-lint.workspace = true
 clap.workspace = true
 tokio.workspace = true
 toml.workspace = true

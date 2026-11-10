@@ -25,6 +25,12 @@
 //!                                  # "excerpts": it sees only linked symbol excerpts
 //! max_turns = 20                   # explore: tool-use turns per analysis
 //!
+//! [lint]                          # `concordance lint` (see docs/spec-lint.md)
+//! whitepaper = "docs/whitepaper.md"
+//! strict = false                   # warnings fail the lint
+//! vague_words = ["fast"]           # replaces the built-in banned-word list
+//! internal_markers = ["shard"]     # added to the built-in internal-detail words
+//!
 //! [server]
 //! host = "127.0.0.1"
 //! port = 4173
@@ -56,6 +62,31 @@ pub struct ConfigFile {
     pub semantic: SemanticFile,
     #[serde(default)]
     pub server: ServerFile,
+    #[serde(default)]
+    pub lint: LintFile,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LintFile {
+    /// White paper path (default `docs/whitepaper.md`), relative to the config file's repository.
+    pub whitepaper: Option<PathBuf>,
+    pub strict: Option<bool>,
+    pub vague_words: Option<Vec<String>>,
+    #[serde(default)]
+    pub internal_markers: Vec<String>,
+}
+
+/// Resolved `[lint]` settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LintConfig {
+    /// Absolute path of the white paper (may not exist).
+    pub whitepaper: PathBuf,
+    pub strict: bool,
+    /// Replacement for the built-in banned words, if configured.
+    pub vague_words: Option<Vec<String>>,
+    /// Extra words that mark an internal detail, added to the built-in ones.
+    pub internal_markers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +161,7 @@ pub struct Config {
     pub test_results: Vec<PathBuf>,
     pub authority: AuthorityRules,
     pub semantic: SemanticConfig,
+    pub lint: LintConfig,
     pub host: String,
     pub port: u16,
 }
@@ -228,6 +260,19 @@ impl Config {
             max_turns: s.max_turns.unwrap_or(20).clamp(1, 60),
         };
 
+        let lint = LintConfig {
+            whitepaper: absolutize(
+                &repo_root,
+                file.lint
+                    .whitepaper
+                    .as_deref()
+                    .unwrap_or(Path::new("docs/whitepaper.md")),
+            ),
+            strict: file.lint.strict.unwrap_or(false),
+            vague_words: file.lint.vague_words,
+            internal_markers: file.lint.internal_markers,
+        };
+
         Ok(Config {
             repo_root,
             spec_roots,
@@ -237,6 +282,7 @@ impl Config {
             test_results,
             authority: file.authority,
             semantic,
+            lint,
             host: cli
                 .host
                 .or(file.server.host)

@@ -40,6 +40,8 @@ enum Cmd {
     Watch(WatchArgs),
     /// Print the persisted findings without scanning.
     Report(ReportArgs),
+    /// Check the specification against the requirement format (see docs/spec-lint.md).
+    Lint(LintArgs),
 }
 
 #[derive(Args, Clone)]
@@ -110,6 +112,18 @@ struct ScanArgs {
     /// Include resolved findings.
     #[arg(long)]
     include_resolved: bool,
+}
+
+#[derive(Args)]
+struct LintArgs {
+    #[command(flatten)]
+    common: Common,
+    /// Treat warnings as errors (also `[lint] strict = true`).
+    #[arg(long)]
+    strict: bool,
+    /// Print the findings as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -217,6 +231,7 @@ fn main() -> ExitCode {
             Cmd::Scan(a) => scan(a).await,
             Cmd::Watch(a) => watch(a).await,
             Cmd::Report(a) => report_cmd(a),
+            Cmd::Lint(a) => lint(a).await,
         }
     })
 }
@@ -400,6 +415,37 @@ async fn scan(a: ScanArgs) -> ExitCode {
         print!("{}", report::human(&rep, a.verbose));
     }
     if rep.gate.failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Exit 0 when the specification conforms, 1 when any error (or, strict, any warning) was found.
+async fn lint(mut a: LintArgs) -> ExitCode {
+    a.common.semantic = false;
+    a.common.no_semantic = true;
+    let config = match config_or_exit(&a.common, None, None) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let (engine, task, bus) = match start_engine(config.clone(), false).await {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    engine.wait_idle().await;
+    let (rep, _) = engine
+        .shared
+        .read(|m| concordance_lint::lint_repo(m, &config, a.strict));
+    engine.shutdown();
+    bus.close();
+    let _ = task.await;
+    if a.json {
+        println!("{}", serde_json::to_string(&rep).unwrap_or_default());
+    } else {
+        print!("{}", rep.human());
+    }
+    if rep.failed() {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS

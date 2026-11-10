@@ -12,6 +12,7 @@ mod inline;
 mod lines;
 mod parse;
 mod refs;
+mod requirements;
 mod sections;
 mod text;
 
@@ -41,4 +42,19 @@ pub fn index_document(
 /// GitHub-style heading anchor: lowercase, spaces -> `-`, drop punctuation except `-`/`_`.
 pub fn slugify(heading: &str) -> String {
     text::slugify(heading)
+}
+
+pub use requirements::{
+    is_strict_id, structure, AttributeItem, CodeSpan, LooseText, RequirementBlock, SpecStructure,
+};
+
+/// What an inline code span refers to, if it looks like a code reference (a symbol path,
+/// an identifier, a repository file). Spans such as `tool build` or `--out` are not references.
+pub fn classify_code_span(
+    code: &str,
+) -> Option<(
+    concordance_core::doc::ReferenceTarget,
+    concordance_core::doc::ReferenceStrength,
+)> {
+    refs::classify_code(code)
 }

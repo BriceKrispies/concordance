@@ -6,6 +6,7 @@ use crate::inline::{Inline, Item};
 use crate::lines::LineIndex;
 use crate::parse::{self, Raw};
 use crate::refs;
+use crate::requirements;
 use crate::sections::{role_from_heading, AnchorAllocator};
 use crate::text::{mask_ranges, split_sentences};
 use concordance_core::doc::*;
@@ -29,6 +30,8 @@ struct Builder<'a> {
     sec_req: Vec<Option<String>>,
     /// Requirement ID opening the text block being processed.
     block_req: Option<String>,
+    /// Attribute bullets of the requirement opening the text block being processed.
+    block_attrs: RequirementAttributes,
 }
 
 /// The requirement ID a heading defines: its first word, if that word is an ID
@@ -39,32 +42,6 @@ fn heading_requirement(plain: &str) -> Option<String> {
         .trim_end_matches([':', '.', ',', ')'])
         .trim_start_matches('(');
     is_requirement_id(first).then(|| first.to_string())
-}
-
-/// A bold requirement ID opening a block: `**LANG-006.3** Block comments ...`.
-/// Returns the ID and the number of plain-text bytes to skip (ID plus separator).
-fn inline_requirement(source: &str, inline: &Inline) -> Option<(String, usize)> {
-    let text = inline.text.as_str();
-    let end = text.find(|c: char| c.is_whitespace()).unwrap_or(text.len());
-    let token = text[..end].trim_end_matches([':', '.', ',']);
-    let token = token.trim_start_matches('[').trim_end_matches(']');
-    if !is_requirement_id(token) {
-        return None;
-    }
-    let at = inline.byte_at(0);
-    let bold = source
-        .get(..at)
-        .is_some_and(|p| p.ends_with("**") || p.ends_with("__") || p.ends_with("**["));
-    if !bold {
-        return None;
-    }
-    let rest = &text[end..];
-    let skip = end
-        + (rest.len()
-            - rest
-                .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '—' | '-'))
-                .len());
-    Some((token.to_string(), skip))
 }
 
 fn code_ranges(inline: &Inline) -> Vec<(usize, usize)> {
@@ -157,10 +134,12 @@ impl<'a> Builder<'a> {
             (Some(id), _) => Some(RequirementRef {
                 id: id.clone(),
                 form: RequirementForm::Inline,
+                attributes: self.block_attrs.clone(),
             }),
             (None, Some(id)) => Some(RequirementRef {
                 id: id.clone(),
                 form: RequirementForm::Heading,
+                attributes: RequirementAttributes::default(),
             }),
             (None, None) => None,
         };
@@ -205,7 +184,7 @@ impl<'a> Builder<'a> {
             None => split_sentences(text, &cranges),
         };
         let section_id = self.sections[sec].id.clone();
-        let opener = inline_requirement(self.lines.source(), inline);
+        let opener = requirements::opener(self.lines.source(), inline, false);
         self.block_req = opener.as_ref().map(|(id, _)| id.clone());
         let skip = opener.map(|(_, n)| n).unwrap_or(0);
         for (s, e) in sentences {
@@ -367,7 +346,9 @@ pub fn build(
         claim_occ: HashMap::new(),
         sec_req: vec![None],
         block_req: None,
+        block_attrs: RequirementAttributes::default(),
     };
+    let found = requirements::find(&raws, text, &lines);
 
     // Section bookkeeping.
     let mut sec_occ: HashMap<String, usize> = HashMap::new();
@@ -393,7 +374,7 @@ pub fn build(
     start_lines.push(1);
     let mut current = 0usize;
 
-    for raw in &raws {
+    for (raw_index, raw) in raws.iter().enumerate() {
         match raw {
             Raw::Heading {
                 level,
@@ -442,8 +423,19 @@ pub fn build(
                 inline,
                 whole_row,
             } => {
+                if found.attribute_raws.contains(&raw_index) {
+                    continue; // an attribute of the requirement above, not a claim
+                }
+                b.block_attrs = found
+                    .openers
+                    .get(&raw_index)
+                    .map(|k| &found.blocks[*k])
+                    .filter(|blk| blk.is_recognized())
+                    .map(|blk| blk.attribute_set())
+                    .unwrap_or_default();
                 b.text_block(current, *kind, inline, *whole_row);
                 b.block_req = None;
+                b.block_attrs = RequirementAttributes::default();
             }
             Raw::Code {
                 lang,

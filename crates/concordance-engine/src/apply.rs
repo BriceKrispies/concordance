@@ -802,10 +802,31 @@ impl Pending {
         {
             self.reconcile_conflicts(m, events);
         }
+        self.reconcile_proof_rules(m, events);
         claims
             .into_iter()
             .filter(|c| m.claims.get(c).is_some_and(|c| c.is_obligation()))
             .collect()
+    }
+
+    /// Proof-rule findings: a requirement with several declaring proofs, a proof that calls
+    /// only internals. Global (a proof's callees and its siblings live in other files).
+    fn reconcile_proof_rules(&mut self, m: &mut Model, events: &mut Vec<Event>) {
+        let found = concordance_reconcile::verification::proof_rule_findings(m, &self.ctx);
+        let old_open: Vec<FindingId> = m
+            .findings
+            .values()
+            .filter(|f| f.is_open() && matches!(f.subject, FindingSubject::ProofRule { .. }))
+            .map(|f| f.id.clone())
+            .collect();
+        let mut keep: HashSet<FindingId> = HashSet::new();
+        for f in found {
+            keep.insert(f.id.clone());
+            self.put_finding(m, f, events);
+        }
+        for f in old_open.into_iter().filter(|f| !keep.contains(f)) {
+            self.resolve_finding(m, &f, events);
+        }
     }
 
     /// Obligation claims whose prose mentions a newly created symbol's name get re-linked.

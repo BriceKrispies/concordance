@@ -5,7 +5,8 @@ Concordance checks that a project's Markdown specifications and its source code 
 It reads the claims in your docs (requirements, MUST/SHALL statements, documented signatures, references to code), indexes the source, and reconciles the two. Each claim is reported as verified, violated, ambiguous or unverified, and every finding points at the exact lines in the spec and the code. It also reports code that no document mentions.
 
 - Requirement IDs in the spec (`**LANG-006.3**`) link to tests that declare `Verifies: LANG-006.3`. Ingested test results (libtest, nextest, JUnit, vitest/jest) then verify or violate them.
-- Languages are plugins. Rust, TypeScript and C# are built in.
+- `concordance lint --strict` enforces the spec-driven requirement format (atomic, observable, at the boundary, provable, traceable to a white paper): see `docs/spec-lint.md`.
+- Languages are plugins. Rust, TypeScript, C# and Lean 4 are built in.
 - It runs locally and watches the repository, updating findings as files change. It never modifies the repository it analyzes.
 - Use it headless (`scan`, `watch`, `report`, with JSON output and CI exit codes) or through a local web UI (`serve`).
 - Optional semantic checks of prose claims use the Claude Code CLI. The model searches the repository read-only and every citation it gives is checked against the real lines. They are off by default.

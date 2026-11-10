@@ -14,6 +14,12 @@ normative = ["docs/specifications/**"]
 descriptive = ["README.md", "docs/guides/**"]
 informative = ["docs/history/**"]
 
+[lint]                                   # `concordance lint` (docs/spec-lint.md)
+whitepaper = "docs/whitepaper.md"
+strict = false                           # true: warnings fail the lint too
+# vague_words = ["fast", "secure"]       # replaces the built-in banned words
+# internal_markers = ["shard"]           # added to the built-in internal-detail words
+
 [semantic]
 enabled = true                           # requires the Claude Code CLI on PATH
 model = "sonnet"

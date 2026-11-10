@@ -1,0 +1,8 @@
+spec_roots = ["docs/spec"]
+src_roots = ["src"]
+
+[authority]
+normative = ["docs/spec/**"]
+
+[lint]
+whitepaper = "docs/whitepaper.md"

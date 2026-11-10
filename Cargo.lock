@@ -301,6 +301,7 @@ dependencies = [
  "concordance-engine",
  "concordance-events",
  "concordance-graph",
+ "concordance-lint",
  "concordance-server",
  "concordance-storage",
  "serde",
@@ -373,6 +374,17 @@ version = "0.1.0"
 dependencies = [
  "concordance-core",
  "toml",
+]
+
+[[package]]
+name = "concordance-lint"
+version = "0.1.0"
+dependencies = [
+ "concordance-core",
+ "concordance-graph",
+ "concordance-markdown",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -450,6 +462,7 @@ dependencies = [
  "concordance-engine",
  "concordance-events",
  "concordance-graph",
+ "concordance-lint",
  "concordance-semantic",
  "concordance-server",
  "serde_json",
