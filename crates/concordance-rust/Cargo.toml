@@ -1,0 +1,13 @@
+[package]
+name = "concordance-rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+syn.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+serde_json.workspace = true
+serde.workspace = true

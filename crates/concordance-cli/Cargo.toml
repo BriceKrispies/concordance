@@ -1,0 +1,22 @@
+[package]
+name = "concordance-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+concordance-engine.workspace = true
+concordance-server.workspace = true
+concordance-events.workspace = true
+concordance-storage.workspace = true
+concordance-graph.workspace = true
+clap.workspace = true
+tokio.workspace = true
+toml.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "concordance"
+path = "src/main.rs"

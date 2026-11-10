@@ -1,0 +1,27 @@
+# Example configuration. Place as `concordance.toml` in the analyzed repository, or
+# anywhere and pass `--config path/to/file.toml`. Every key is optional; command-line
+# flags override it (--repo, --spec-root, --src-root, --state-dir, --semantic, --model,
+# --host, --port).
+
+repo = "/path/to/repo"                 # relative paths resolve against this file's directory
+spec_roots = ["docs/specifications", "docs/architecture"]
+src_roots = ["crates", "src"]
+exclude = ["docs/archive/**"]           # globs relative to the repository root
+# state_dir = "C:/somewhere/else"       # default: %LOCALAPPDATA%\concordance\<repo>-<hash>
+
+[authority]                              # globs; first matching list wins, in this order
+normative = ["docs/specifications/**"]
+descriptive = ["README.md", "docs/guides/**"]
+informative = ["docs/history/**"]
+
+[semantic]
+enabled = true                           # requires the Claude Code CLI on PATH
+model = "sonnet"
+challenger_model = "opus"
+max_concurrent = 2
+max_analyses_per_scan = 40
+claude_path = "claude"
+
+[server]
+host = "127.0.0.1"
+port = 4173

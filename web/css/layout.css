@@ -1,0 +1,87 @@
+/* App shell: mobile bottom tab bar; sidebar from 900px. */
+.skip-link {
+  position: absolute; left: 8px; top: -60px; z-index: 100;
+  background: var(--accent); color: var(--accent-contrast);
+  padding: 0.5rem 0.75rem; border: 0; border-radius: var(--radius-sm);
+}
+.skip-link:focus { top: 8px; }
+
+.app { min-height: 100vh; min-height: 100dvh; }
+
+.app-header {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+  padding: calc(var(--space-2) + env(safe-area-inset-top)) var(--gutter) var(--space-2);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; color: var(--text); text-decoration: none; letter-spacing: 0.01em; }
+.repo-name { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0; }
+.conn { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; margin-left: auto; }
+.conn-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--unverified-bd); border: 2px solid var(--muted); }
+.conn-live { background: var(--verified-fg); border-color: var(--verified-fg); }
+.conn-reconnecting, .conn-connecting { background: transparent; border-color: var(--stale-fg); animation: pulse 1.2s ease-in-out infinite; }
+.conn-resynced { background: var(--undocumented-fg); border-color: var(--undocumented-fg); border-radius: 2px; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+
+.scan-progress { flex-basis: 100%; display: flex; align-items: center; gap: var(--space-2); font-size: 0.85rem; }
+.scan-progress[hidden] { display: none; }
+.scan-progress progress { flex: 1; height: 8px; min-width: 0; }
+progress { accent-color: var(--accent); }
+
+.app-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: var(--surface); border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
+}
+.app-nav ul { display: flex; list-style: none; margin: 0; padding: 0; }
+.app-nav li { flex: 1 1 0; min-width: 0; }
+.app-nav a {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  min-height: var(--touch); padding: 0.25rem 2px;
+  font-size: 0.72rem; font-weight: 600; text-decoration: none; color: var(--muted);
+  border-top: 3px solid transparent;
+}
+.app-nav a[aria-current="page"] { color: var(--accent); border-top-color: var(--accent); background: var(--surface-2); }
+
+main {
+  padding: var(--space-4) var(--gutter) calc(var(--touch) + var(--space-5) + env(safe-area-inset-bottom));
+  max-width: 100%; min-width: 0;
+}
+main:focus { outline: none; }
+
+.view { max-width: 1200px; margin: 0 auto; min-width: 0; }
+.page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.page-header h1 { margin: 0; }
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.crumbs { margin-bottom: var(--space-2); }
+
+.stack { display: grid; gap: var(--space-4); min-width: 0; }
+.stack-sm { display: grid; gap: var(--space-2); min-width: 0; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.grid-2 { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr); }
+
+@media (min-width: 600px) {
+  :root { --gutter: 24px; }
+  .app-nav a { font-size: 0.82rem; }
+  .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+}
+
+@media (min-width: 900px) {
+  .app { display: grid; grid-template-columns: 210px minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .app-header { grid-column: 1 / -1; padding-top: var(--space-3); padding-bottom: var(--space-3); }
+  .scan-progress { flex-basis: auto; width: 260px; }
+  .app-nav {
+    position: sticky; top: 56px; align-self: start; height: calc(100vh - 56px); height: calc(100dvh - 56px);
+    border-top: 0; border-right: 1px solid var(--border); padding: var(--space-3) 0;
+  }
+  .app-nav ul { flex-direction: column; }
+  .app-nav a {
+    justify-content: flex-start; padding: 0 var(--space-4); font-size: 0.95rem;
+    border-top: 0; border-left: 3px solid transparent;
+  }
+  .app-nav a[aria-current="page"] { border-left-color: var(--accent); }
+  main { padding: var(--space-5) var(--space-5) var(--space-6); }
+  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  h1 { font-size: 1.6rem; }
+}

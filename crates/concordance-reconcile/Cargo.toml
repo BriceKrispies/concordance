@@ -1,0 +1,11 @@
+[package]
+name = "concordance-reconcile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+concordance-graph.workspace = true
+serde.workspace = true
+serde_json.workspace = true

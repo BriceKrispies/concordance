@@ -1,0 +1,16 @@
+# Concordance analyzing itself: `concordance serve` or `concordance scan` from this directory.
+spec_roots = ["docs/specifications"]
+src_roots = ["crates"]
+
+[authority]
+normative = ["docs/specifications/**"]
+
+[semantic]
+enabled = false
+model = "sonnet"
+challenger_model = "sonnet"
+max_concurrent = 2
+max_analyses_per_scan = 40
+
+[server]
+port = 4173

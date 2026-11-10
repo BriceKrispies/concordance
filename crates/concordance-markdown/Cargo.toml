@@ -1,0 +1,12 @@
+[package]
+name = "concordance-markdown"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+pulldown-cmark.workspace = true
+
+[dev-dependencies]
+concordance-rust.workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "concordance-tests"
+description = "End-to-end and integration tests over the fixture repositories."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+concordance-core.workspace = true
+concordance-engine.workspace = true
+concordance-events.workspace = true
+concordance-graph.workspace = true
+concordance-semantic.workspace = true
+concordance-server.workspace = true
+tokio.workspace = true
+serde_json.workspace = true

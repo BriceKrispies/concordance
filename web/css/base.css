@@ -1,0 +1,118 @@
+/* Design tokens, reset and typography. Light theme by default; dark via prefers-color-scheme. */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eceef2;
+  --text: #1a1e26;
+  --muted: #566070;
+  --border: #d3d8e0;
+  --accent: #1d5bbf;
+  --accent-contrast: #ffffff;
+  --focus: #1d5bbf;
+  --code-bg: #f8f9fb;
+  --hl-bg: #fff3c4;
+  --hl-bar: #c98a00;
+
+  --violated-fg: #9b1c1c;   --violated-bg: #fde7e7;   --violated-bd: #e9a5a5;
+  --stale-fg: #7a4600;      --stale-bg: #fff0d1;      --stale-bd: #e6bf74;
+  --ambiguous-fg: #58299f;  --ambiguous-bg: #efe7fb;  --ambiguous-bd: #c4aaeb;
+  --unverified-fg: #444c5a; --unverified-bg: #e8eaee; --unverified-bd: #bcc3cf;
+  --verified-fg: #0f5f35;   --verified-bg: #dcf4e5;   --verified-bd: #8fd0aa;
+  --undocumented-fg: #0f4c99; --undocumented-bg: #dfecfb; --undocumented-bd: #92bdee;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --gutter: 16px;
+  --touch: 44px;
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --surface: #171b22;
+    --surface-2: #212733;
+    --text: #e5e8ee;
+    --muted: #a0aabb;
+    --border: #2d3544;
+    --accent: #7db0ff;
+    --accent-contrast: #0b1220;
+    --focus: #9cc2ff;
+    --code-bg: #12161c;
+    --hl-bg: #4a3d12;
+    --hl-bar: #f0b429;
+
+    --violated-fg: #ffaaaa;   --violated-bg: #4a1e1e;   --violated-bd: #8a3a3a;
+    --stale-fg: #ffca70;      --stale-bg: #45330e;      --stale-bd: #86641c;
+    --ambiguous-fg: #d4b8ff;  --ambiguous-bg: #382559;  --ambiguous-bd: #6c4cad;
+    --unverified-fg: #c0c8d6; --unverified-bg: #303644; --unverified-bd: #525c70;
+    --verified-fg: #86e0ab;   --verified-bg: #153d27;   --verified-bd: #2f7a52;
+    --undocumented-fg: #9cc7ff; --undocumented-bg: #172f52; --undocumented-bd: #36619f;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3 { line-height: 1.25; margin: 0 0 var(--space-3); }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.1rem; }
+h3 { font-size: 0.98rem; }
+p { margin: 0 0 var(--space-3); }
+ul, ol { margin: 0 0 var(--space-3); padding-left: 1.25rem; }
+ul.plain, ol.plain { list-style: none; padding: 0; }
+dl, dd { margin: 0; }
+figure { margin: 0; }
+blockquote { margin: 0; }
+
+a { color: var(--accent); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+
+code, pre, .mono { font-family: var(--mono); font-size: 0.88em; }
+pre { margin: 0; }
+
+button, input, select { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+.wrap { overflow-wrap: anywhere; word-break: break-word; }
+.prewrap { white-space: pre-wrap; }
+.warn-text { color: var(--stale-fg); font-weight: 600; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

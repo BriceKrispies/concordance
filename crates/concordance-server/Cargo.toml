@@ -1,0 +1,17 @@
+[package]
+name = "concordance-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+concordance-graph.workspace = true
+concordance-engine.workspace = true
+concordance-events.workspace = true
+axum.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+concordance-storage.workspace = true

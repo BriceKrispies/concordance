@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "tests"]
+exclude = ["fixtures"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.dependencies]
+concordance-core = { path = "crates/concordance-core" }
+concordance-markdown = { path = "crates/concordance-markdown" }
+concordance-rust = { path = "crates/concordance-rust" }
+concordance-typescript = { path = "crates/concordance-typescript" }
+concordance-graph = { path = "crates/concordance-graph" }
+concordance-storage = { path = "crates/concordance-storage" }
+concordance-reconcile = { path = "crates/concordance-reconcile" }
+concordance-semantic = { path = "crates/concordance-semantic" }
+concordance-engine = { path = "crates/concordance-engine" }
+concordance-events = { path = "crates/concordance-events" }
+concordance-server = { path = "crates/concordance-server" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "signal", "io-util", "net"] }
+axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio", "matched-path"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+pulldown-cmark = { version = "0.12", default-features = false }
+syn = { version = "2", features = ["full", "visit", "extra-traits", "printing"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+ignore = "0.4"
+globset = "0.4"
+oxc_allocator = "=0.150.0"
+oxc_parser = "=0.150.0"
+oxc_ast = "=0.150.0"
+oxc_ast_visit = "=0.150.0"
+oxc_span = "=0.150.0"
+
+[profile.dev.package."*"]
+opt-level = 1

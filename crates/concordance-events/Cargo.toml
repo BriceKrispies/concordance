@@ -1,0 +1,9 @@
+[package]
+name = "concordance-events"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+concordance-core.workspace = true
+tokio.workspace = true
