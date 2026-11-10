@@ -11,6 +11,7 @@ of `Case` before the dot) the driver copies the fixture and applies the violatio
 
 - `violations/<stem>.md` is installed as `docs/spec/<stem>.md` and gets a row in the spec index. Its owning
   prefix is the upper-cased letters before the first dash of the first bold ID in the file.
+- `cases/` holds the case files that `r4_cases` names: `good.md` (a valid table) and `broken.md` (no table).
 - `whitepaper_uncovered` replaces `docs/whitepaper.md` instead.
 - `missing_whitepaper` has no file: the driver deletes `docs/whitepaper.md`.
 
@@ -34,6 +35,10 @@ findings with the `Severity` column, the matching error and warning counts, and 
 | r4_provable.3 | docs/spec/r4_provable.md | R4 | 13 | error |
 | r4_provable.4 | docs/spec/r4_provable.md | R4 | 18 | error |
 | r4_provable.5 | docs/spec/r4_provable.md | R4 | 23 | error |
+| r4_cases.1 | docs/spec/r4_cases.md | R4 | 3 | error |
+| r4_cases.2 | docs/spec/r4_cases.md | R4 | 12 | error |
+| r4_cases.3 | docs/spec/r4_cases.md | R4 | 18 | error |
+| r4_cases.4 | docs/spec/r4_cases.md | R4 | 24 | error |
 | r5_traceable.1 | docs/spec/r5_traceable.md | R5 | 3 | error |
 | r5_traceable.2 | docs/spec/r5_traceable.md | R5 | 10 | error |
 | r5_traceable.3 | docs/spec/r5_traceable.md | R5 | 12 | error |
