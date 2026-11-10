@@ -63,6 +63,7 @@ fn request(symbols: Vec<SymbolContext>) -> AnalysisRequest {
         symbols,
         mode: AnalysisMode::Assess,
         model: "test-model".into(),
+        explore: None,
     }
 }
 
@@ -262,4 +263,180 @@ async fn extra_fields_are_invalid_response() {
         .await
         .unwrap_err();
     assert!(matches!(e, AnalysisError::InvalidResponse(_)));
+}
+
+// ------------------------------------------------------------------ explore mode
+
+struct RepoProvider;
+impl ContextProvider for RepoProvider {
+    fn expand(&self, _: &ContextWanted) -> Option<SymbolContext> {
+        None
+    }
+    fn code_file(&self, path: &str) -> Option<CodeFile> {
+        let p = path.replace('\\', "/");
+        let rel = p.strip_prefix("C:/repo/").unwrap_or(&p);
+        let file = |lines: &[&str], dependency, document| CodeFile {
+            path: RepoPath::from_relative_str(rel).unwrap(),
+            lines: lines.iter().map(|l| l.to_string()).collect(),
+            dependency,
+            document,
+        };
+        match rel {
+            "src/limit.rs" => Some(file(
+                &[
+                    "// limiter",
+                    "fn admit(n: u32) -> bool {",
+                    "    n <= 100",
+                    "}",
+                ],
+                Some(concordance_core::evidence::Dependency {
+                    node: concordance_core::graph::NodeRef::File(FileId::from_key(&["f"])),
+                    content_hash: ContentHash::of_str("file"),
+                }),
+                false,
+            )),
+            // Outside the index: valid evidence, but untracked.
+            "engine/cap.nyn" => Some(file(&["fn cap() -> u32 { 100 }"], None, false)),
+            "docs/notes.md" => Some(file(&["The cap is 100."], None, true)),
+            _ => None,
+        }
+    }
+    fn enclosing_symbol(
+        &self,
+        file: &RepoPath,
+        start: u32,
+        end: u32,
+    ) -> Option<(SymbolId, ContentHash)> {
+        (file.as_str() == "src/limit.rs" && start >= 2 && end <= 4)
+            .then(|| (SymbolId::from_key(&["admit"]), ContentHash::of_str("admit")))
+    }
+}
+
+fn code_cit(path: &str, s: i64, e: i64, quote: &str) -> serde_json::Value {
+    json!({"source": "code", "path": path, "start_line": s, "end_line": e, "quote": quote, "note": "n"})
+}
+
+#[tokio::test]
+async fn explore_mode_validates_code_citations_against_repository_files() {
+    let b = ScriptedBackend::new(vec![json!({
+        "verdict": "agrees",
+        "explanation": "admit caps at 100",
+        "supporting": [
+            code_cit(r"C:\repo\src\limit.rs", 3, 3, "n <= 100"),
+            code_cit("src/other.rs", 1, 1, "fn nothing"),
+            code_cit("src/limit.rs", 3, 3, "n < 7"),
+            code_cit("engine/cap.nyn", 1, 1, "{ 100 }"),
+            code_cit("docs/notes.md", 1, 1, "The cap is 100."),
+        ],
+        "contradicting": [],
+        "ambiguities": [],
+    })]);
+    let mut req = request(vec![sym("crate::check", &BODY)]);
+    req.explore = Some(Exploration {
+        repo_root: "C:/repo".into(),
+        max_turns: 10,
+    });
+    let r = analyze(&b, req, &RepoProvider, cancel()).await.unwrap();
+    let a = &r.assessment;
+    assert_eq!(a.verdict, Verdict::Agrees, "{a:?}");
+    assert_eq!(a.supporting.len(), 3, "{:?}", a.supporting);
+    let c = &a.supporting[0];
+    assert_eq!(c.range.path.as_str(), "src/limit.rs");
+    assert_eq!((c.range.start_line, c.range.end_line), (3, 3));
+    assert_eq!(c.excerpt, "    n <= 100");
+    assert_eq!(c.symbol, Some(SymbolId::from_key(&["admit"])));
+    assert_eq!(a.rejected.len(), 2, "{:?}", a.rejected);
+    // Depends on the claim and the cited symbol; the hint excerpt was never sent.
+    let nodes: Vec<String> = r.dependencies.iter().map(|d| d.node.to_string()).collect();
+    assert_eq!(nodes.len(), 2, "{nodes:?}");
+    assert!(nodes.contains(&SymbolId::from_key(&["admit"]).to_string()));
+    // An unindexed source file is implementation evidence, listed as untracked; a
+    // Markdown file is a specification citation.
+    assert_eq!(a.supporting[1].role, CitationRole::Implementation);
+    assert_eq!(a.supporting[2].role, CitationRole::Specification);
+    assert_eq!(a.untracked, vec!["engine/cap.nyn", "docs/notes.md"]);
+
+    let prompt = b.prompts().remove(0);
+    assert!(prompt.contains("<hints"), "{prompt}");
+    assert!(!prompt.contains("<excerpt"), "{prompt}");
+}
+
+#[tokio::test]
+async fn code_citations_are_rejected_outside_explore_mode() {
+    let b = ScriptedBackend::new(vec![response(
+        "disagrees",
+        json!([code_cit("src/limit.rs", 3, 3, "n <= 100")]),
+        json!([]),
+    )]);
+    let r = analyze(
+        &b,
+        request(vec![sym("crate::check", &BODY)]),
+        &RepoProvider,
+        cancel(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.assessment.verdict, Verdict::InsufficientEvidence);
+    assert_eq!(r.assessment.rejected.len(), 1);
+}
+
+#[tokio::test]
+async fn elided_and_read_prefixed_quotes_match_but_short_elisions_do_not() {
+    let b = ScriptedBackend::new(vec![json!({
+        "verdict": "agrees",
+        "explanation": "e",
+        "supporting": [
+            // Lines elided with an ellipsis, fragments in order.
+            code_cit("src/limit.rs", 2, 3, "fn admit(n: u32) -> bool { ... n <= 100"),
+            // A Read tool line-number prefix.
+            code_cit("src/limit.rs", 3, 3, "3\t    n <= 100"),
+            // Fragments out of order.
+            code_cit("src/limit.rs", 2, 3, "n <= 100 ... fn admit(n: u32)"),
+            // An elision with a trivial fragment proves nothing.
+            code_cit("src/limit.rs", 1, 4, "// limiter ... }"),
+        ],
+        "contradicting": [],
+        "ambiguities": [],
+    })]);
+    let mut req = request(vec![]);
+    req.explore = Some(Exploration {
+        repo_root: "C:/repo".into(),
+        max_turns: 10,
+    });
+    let r = analyze(&b, req, &RepoProvider, cancel()).await.unwrap();
+    let a = &r.assessment;
+    let ranges: Vec<(u32, u32)> = a
+        .supporting
+        .iter()
+        .map(|c| (c.range.start_line, c.range.end_line))
+        .collect();
+    assert_eq!(ranges, vec![(2, 3), (3, 3)], "{:?}", a.rejected);
+    assert_eq!(a.rejected.len(), 2, "{:?}", a.rejected);
+}
+
+#[tokio::test]
+async fn explore_passage_citations_may_point_anywhere_in_the_claim_document() {
+    let b = ScriptedBackend::new(vec![json!({
+        "verdict": "ambiguous",
+        "explanation": "e",
+        "supporting": [{"source": "passage", "path": "C", "start_line": 1, "end_line": 1,
+                        "quote": "The cap is 100.", "note": "n"}],
+        "contradicting": [],
+        "ambiguities": [],
+    })]);
+    let mut req = request(vec![]);
+    req.claim.document_path = RepoPath::from_relative_str("docs/notes.md").unwrap();
+    req.explore = Some(Exploration {
+        repo_root: "C:/repo".into(),
+        max_turns: 10,
+    });
+    let r = analyze(&b, req, &RepoProvider, cancel()).await.unwrap();
+    let a = &r.assessment;
+    assert_eq!(a.supporting.len(), 1, "{:?}", a.rejected);
+    assert_eq!(a.supporting[0].role, CitationRole::Specification);
+    assert_eq!(a.supporting[0].range.path.as_str(), "docs/notes.md");
+    assert!(
+        a.untracked.is_empty(),
+        "the claim's own document is not untracked"
+    );
 }

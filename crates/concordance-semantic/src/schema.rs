@@ -4,6 +4,22 @@ use crate::model::{AnalysisError, ChallengeOutcome, Verdict};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+fn code_citation_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "path", "start_line", "end_line", "quote", "note"],
+        "properties": {
+            "source": { "type": "string", "enum": ["code", "passage"] },
+            "path": { "type": "string" },
+            "start_line": { "type": "integer" },
+            "end_line": { "type": "integer" },
+            "quote": { "type": "string" },
+            "note": { "type": "string" }
+        }
+    })
+}
+
 fn citation_schema() -> Value {
     json!({
         "type": "object",
@@ -55,6 +71,53 @@ const BASE_REQUIRED: [&str; 6] = [
     "needed_context",
 ];
 
+/// Explore mode: citations name files, and there is no `needed_context` (the model
+/// reads what it needs).
+fn explore_properties() -> serde_json::Map<String, Value> {
+    let mut m = base_properties();
+    m.remove("needed_context");
+    m.insert(
+        "supporting".into(),
+        json!({ "type": "array", "items": code_citation_schema() }),
+    );
+    m.insert(
+        "contradicting".into(),
+        json!({ "type": "array", "items": code_citation_schema() }),
+    );
+    m
+}
+
+fn schema_with(explore: bool, challenge: bool) -> Value {
+    let mut props = if explore {
+        explore_properties()
+    } else {
+        base_properties()
+    };
+    let mut required: Vec<&str> = BASE_REQUIRED
+        .iter()
+        .copied()
+        .filter(|r| !(explore && *r == "needed_context"))
+        .collect();
+    if challenge {
+        props.insert(
+            "challenge_outcome".into(),
+            json!({ "type": "string", "enum": ["upheld", "refuted", "inconclusive"] }),
+        );
+        required.push("challenge_outcome");
+    }
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": required,
+        "properties": props
+    })
+}
+
+/// The schema for one request.
+pub fn schema_for(explore: bool, challenge: bool) -> Value {
+    schema_with(explore, challenge)
+}
+
 /// Schema for Layer B.
 pub fn assess_schema() -> Value {
     json!({
@@ -87,13 +150,19 @@ pub fn challenge_schema() -> Value {
 pub enum CitationSource {
     Excerpt,
     Passage,
+    /// Explore mode: a repository file by path.
+    Code,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawCitation {
     pub source: CitationSource,
+    #[serde(default)]
     pub excerpt_id: String,
+    /// Explore mode: the cited file.
+    #[serde(default)]
+    pub path: String,
     pub start_line: i64,
     pub end_line: i64,
     pub quote: String,
@@ -116,6 +185,7 @@ struct AssessWire {
     supporting: Vec<RawCitation>,
     contradicting: Vec<RawCitation>,
     ambiguities: Vec<String>,
+    #[serde(default)]
     needed_context: Vec<RawNeeded>,
 }
 
@@ -127,6 +197,7 @@ struct ChallengeWire {
     supporting: Vec<RawCitation>,
     contradicting: Vec<RawCitation>,
     ambiguities: Vec<String>,
+    #[serde(default)]
     needed_context: Vec<RawNeeded>,
     challenge_outcome: ChallengeOutcome,
 }

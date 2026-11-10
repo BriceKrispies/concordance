@@ -33,10 +33,12 @@ fn normalize_quote(q: &str) -> String {
         .map(|l| {
             let t = l.trim_start();
             let digits = t.bytes().take_while(|b| b.is_ascii_digit()).count();
-            if digits > 0 && t[digits..].starts_with('|') {
-                t[digits + 1..].to_string()
-            } else {
-                l.to_string()
+            // Our `  40| ` excerpt prefix, or the `40→` / `40<TAB>` of a Read tool result.
+            match t[digits..].chars().next() {
+                Some(sep @ ('|' | '\t' | '→')) if digits > 0 => {
+                    t[digits + sep.len_utf8()..].to_string()
+                }
+                _ => l.to_string(),
             }
         })
         .collect();
@@ -53,12 +55,38 @@ fn slice_text(t: &Target, from: usize, to: usize) -> String {
     collapse(&t.lines[from..=to].join(" "))
 }
 
+/// Whether `text` contains `quote`. A quote that elides lines with `...` or `…` matches
+/// when its fragments occur in order; every fragment must be substantial, so an
+/// elision cannot stand in for the cited code.
+fn quote_matches(text: &str, quote: &str) -> bool {
+    if !quote.contains("...") && !quote.contains('…') {
+        return text.contains(quote);
+    }
+    let fragments: Vec<&str> = quote
+        .split("...")
+        .flat_map(|p| p.split('…'))
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .collect();
+    if fragments.is_empty() || fragments.iter().any(|f| f.chars().count() < 6) {
+        return text.contains(quote);
+    }
+    let mut at = 0;
+    for f in fragments {
+        match text[at..].find(f) {
+            Some(i) => at += i + f.len(),
+            None => return false,
+        }
+    }
+    true
+}
+
 /// Find the smallest line range (indices) whose collapsed text contains `quote`.
 fn find_quote(t: &Target, quote: &str) -> Option<(usize, usize)> {
     let n = t.lines.len();
     for len in 1..=MAX_CITATION_SPAN.min(n) {
         for s in 0..=(n - len) {
-            if slice_text(t, s, s + len - 1).contains(quote) {
+            if quote_matches(&slice_text(t, s, s + len - 1), quote) {
                 return Some((s, s + len - 1));
             }
         }
@@ -97,7 +125,7 @@ fn check_range(t: &Target, c: &RawCitation, quote: &str) -> Result<Checked, Stri
     }
     let start = (c.start_line - first) as usize;
     let end = (c.end_line - first) as usize;
-    if slice_text(t, start, end).contains(quote) {
+    if quote_matches(&slice_text(t, start, end), quote) {
         return Ok(Checked { start, end });
     }
     match find_quote(t, quote) {
@@ -106,13 +134,57 @@ fn check_range(t: &Target, c: &RawCitation, quote: &str) -> Result<Checked, Stri
     }
 }
 
-fn validate_one(c: &RawCitation, prompt: &BuiltPrompt) -> Result<ValidatedCitation, String> {
+/// Explore mode: a code citation is checked against the current, hash-checked file.
+fn validate_code(
+    c: &RawCitation,
+    quote: &str,
+    note: String,
+    provider: &dyn ContextProvider,
+) -> Result<ValidatedCitation, String> {
+    let file = provider.code_file(c.path.trim()).ok_or_else(|| {
+        format!(
+            "`{}` is not a readable repository file (outside, excluded, or changed since indexing)",
+            c.path.trim()
+        )
+    })?;
+    let t = Target {
+        start_line: 1,
+        lines: &file.lines,
+    };
+    let r = check_range(&t, c, quote)?;
+    let (sl, el) = (1 + r.start as u32, 1 + r.end as u32);
+    Ok(ValidatedCitation {
+        role: if file.document {
+            CitationRole::Specification
+        } else {
+            CitationRole::Implementation
+        },
+        symbol: provider
+            .enclosing_symbol(&file.path, sl, el)
+            .map(|(id, _)| id),
+        range: SourceRange::lines(file.path.clone(), sl, el),
+        excerpt: file.lines[r.start..=r.end].join("\n"),
+        note,
+    })
+}
+
+fn validate_one(
+    c: &RawCitation,
+    prompt: &BuiltPrompt,
+    provider: &dyn ContextProvider,
+) -> Result<ValidatedCitation, String> {
     let quote = normalize_quote(&c.quote);
     if quote.chars().count() < 3 {
         return Err("quote is empty or too short".into());
     }
     let note = truncate_chars(c.note.trim(), MAX_NOTE_CHARS);
-    if c.excerpt_id == "C" {
+    if c.source == CitationSource::Code {
+        if !prompt.explore {
+            return Err("source \"code\" is only valid in explore mode".into());
+        }
+        return validate_code(c, &quote, note, provider);
+    }
+    if c.excerpt_id == "C" || (prompt.explore && c.source == CitationSource::Passage) {
         if c.source != CitationSource::Passage {
             return Err("excerpt_id \"C\" requires source \"passage\"".into());
         }
@@ -121,7 +193,16 @@ fn validate_one(c: &RawCitation, prompt: &BuiltPrompt) -> Result<ValidatedCitati
             start_line: p.start_line,
             lines: &p.lines,
         };
-        let r = check_range(&t, c, &quote)?;
+        let r = match check_range(&t, c, &quote) {
+            Ok(r) => r,
+            // Explore mode: the model may have read the rest of the claim's document.
+            Err(_) if prompt.explore => {
+                let mut whole = c.clone();
+                whole.path = p.document.to_string();
+                return validate_code(&whole, &quote, note, provider);
+            }
+            Err(e) => return Err(e),
+        };
         let sl = p.start_line + r.start as u32;
         let el = p.start_line + r.end as u32;
         return Ok(ValidatedCitation {
@@ -162,12 +243,13 @@ fn validate_one(c: &RawCitation, prompt: &BuiltPrompt) -> Result<ValidatedCitati
 fn validate_list(
     list: &[RawCitation],
     prompt: &BuiltPrompt,
+    provider: &dyn ContextProvider,
     label: &str,
     rejected: &mut Vec<String>,
 ) -> Vec<ValidatedCitation> {
     let mut out = Vec::new();
     for c in list {
-        match validate_one(c, prompt) {
+        match validate_one(c, prompt, provider) {
             Ok(v) => {
                 if !out
                     .iter()
@@ -178,7 +260,13 @@ fn validate_list(
             }
             Err(why) => rejected.push(format!(
                 "{label} citation {}:{}-{} rejected: {why}",
-                c.excerpt_id, c.start_line, c.end_line
+                if c.excerpt_id.is_empty() {
+                    &c.path
+                } else {
+                    &c.excerpt_id
+                },
+                c.start_line,
+                c.end_line
             )),
         }
     }
@@ -186,10 +274,26 @@ fn validate_list(
 }
 
 /// Validate a parsed response against what was sent and apply downgrade rules.
-pub fn finalize(raw: &RawAssessment, prompt: &BuiltPrompt) -> Assessment {
+pub fn finalize(
+    raw: &RawAssessment,
+    prompt: &BuiltPrompt,
+    provider: &dyn ContextProvider,
+) -> Assessment {
     let mut rejected = prompt.omitted.clone();
-    let supporting = validate_list(&raw.supporting, prompt, "supporting", &mut rejected);
-    let contradicting = validate_list(&raw.contradicting, prompt, "contradicting", &mut rejected);
+    let supporting = validate_list(
+        &raw.supporting,
+        prompt,
+        provider,
+        "supporting",
+        &mut rejected,
+    );
+    let contradicting = validate_list(
+        &raw.contradicting,
+        prompt,
+        provider,
+        "contradicting",
+        &mut rejected,
+    );
 
     let mut verdict = raw.verdict;
     let mut downgraded = None;
@@ -247,5 +351,6 @@ pub fn finalize(raw: &RawAssessment, prompt: &BuiltPrompt) -> Assessment {
         rejected,
         downgraded,
         challenge,
+        untracked: vec![],
     }
 }

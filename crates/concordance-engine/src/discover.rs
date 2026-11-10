@@ -85,35 +85,41 @@ impl PathFilter {
                     rel.starts_with_dir(&rr)
                 })
         });
-        if !under_root {
+        if !under_root || !self.readable(&rel) {
             return None;
         }
+        Some((rel, kind))
+    }
+
+    /// Whether a repository path is one the analysis may read at all: not in build,
+    /// VCS or hidden directories, not excluded, not ignored, not the state directory.
+    pub fn readable(&self, rel: &RepoPath) -> bool {
         let parts: Vec<&str> = rel.as_str().split('/').collect();
         let dirs = &parts[..parts.len() - 1];
         if dirs
             .iter()
             .any(|d| SKIP_DIRS.contains(d) || (d.starts_with('.') && d.len() > 1))
         {
-            return None;
+            return false;
         }
         let name = parts[parts.len() - 1];
         if name.starts_with(".#") || name.starts_with('~') || name.ends_with('~') {
-            return None;
+            return false;
         }
         if self.exclude.is_match(rel.as_str()) {
-            return None;
+            return false;
         }
         if self
             .gitignore
             .matched_path_or_any_parents(rel.as_str(), false)
             .is_ignore()
         {
-            return None;
+            return false;
         }
         if RepoPath::from_fs(&self.root, &self.state_dir).is_some_and(|s| rel.starts_with_dir(&s)) {
-            return None;
+            return false;
         }
-        Some((rel, kind))
+        true
     }
 
     /// Walk every root (respecting .gitignore) and return analysis files, sorted.

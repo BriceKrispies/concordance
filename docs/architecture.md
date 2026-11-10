@@ -87,8 +87,25 @@ A change batch (initial scan, watcher batch, manual scan) works in these steps:
    cannot decide and that lack valid semantic evidence. Running analyses whose inputs were invalidated
    are cancelled.
 
+**Context.** `[semantic] context` picks what the model sees:
+
+- `explore` (default): the claim, its passage and the names and locations of linked symbols as
+  hints. The model searches the repository itself with the CLI's read-only `Read`, `Grep` and `Glob`
+  tools (`--add-dir <repo>`, at most `max_turns` turns, no MCP servers, no other tools). Every
+  candidate obligation qualifies, linked or not.
+- `excerpts`: only the excerpts of up to four linked symbols, with no tools. A claim qualifies only
+  when it names a symbol explicitly, because name-similarity links alone send unrelated code.
+
+In explore mode a code citation names a repository file. It is checked against that file as it is now:
+an indexed file must still match its indexed hash, and any other file must be one discovery would not
+skip (not excluded, ignored, hidden or build output). A Markdown or text file is cited as
+specification, never as implementation. A cited file outside the index is valid evidence, but it is
+listed in the assessment as untracked, because its edits cannot invalidate the result. Evidence
+resting only on untracked files is weak.
+
 **Freshness.** A semantic result is applied only if, under the write lock, the claim and every symbol
-it saw still have the hashes it was computed from. Otherwise it is reported as `superseded` and
+it saw still have the hashes it was computed from. In explore mode the result depends on the claim
+and on the symbols (or indexed files) its citations land in. Otherwise it is reported as `superseded` and
 re-queued. Results are cached by prompt version, mode, model and input hashes, and a cached result
 is reused only after the same freshness check.
 

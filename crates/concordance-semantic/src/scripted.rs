@@ -56,6 +56,7 @@ impl Backend for ScriptedBackend {
                     input_tokens: Some(1),
                     output_tokens: Some(1),
                     session_id: Some("scripted-session".into()),
+                    turns: None,
                 }),
             }
         })

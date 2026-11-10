@@ -67,8 +67,8 @@ const STD_NAMES: &[&str] = &[
 
 const FILE_EXTS: &[&str] = &[
     "rs", "md", "mdx", "toml", "json", "yaml", "yml", "txt", "lock", "sh", "ps1", "py", "js", "ts",
-    "tsx", "jsx", "mts", "cts", "mjs", "cjs", "cs", "csproj", "sln", "html", "css", "cfg",
-    "ini", "csv", "proto", "sql",
+    "tsx", "jsx", "mts", "cts", "mjs", "cjs", "cs", "csproj", "sln", "html", "css", "cfg", "ini",
+    "csv", "proto", "sql",
 ];
 
 fn is_ident(s: &str) -> bool {

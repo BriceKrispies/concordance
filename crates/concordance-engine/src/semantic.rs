@@ -26,8 +26,8 @@ use concordance_graph::Model;
 use concordance_reconcile::{derive, BatchContext};
 use concordance_semantic::{
     AnalysisError, AnalysisMode, AnalysisRequest, AnalysisResult, Assessment, Backend,
-    ChallengeOutcome, ClaimContext, ClaudeCli, ContextProvider, ContextWanted, SymbolContext,
-    Verdict, PROMPT_VERSION,
+    ChallengeOutcome, ClaimContext, ClaudeCli, CodeFile, ContextProvider, ContextWanted,
+    Exploration, SymbolContext, Verdict, PROMPT_VERSION,
 };
 use concordance_storage::AnalysisRecord;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -38,6 +38,8 @@ use tokio::sync::{mpsc, watch};
 
 /// Max symbol excerpts in the initial context.
 const MAX_INITIAL_SYMBOLS: usize = 4;
+/// Explore mode: max symbol hints (name and location only).
+const MAX_HINTS: usize = 6;
 /// Max lines of one symbol excerpt.
 const MAX_SYMBOL_LINES: u32 = 150;
 const CLI_TIMEOUT: Duration = Duration::from_secs(300);
@@ -202,6 +204,7 @@ impl SemanticRunner {
         if !self.enabled() {
             return;
         }
+        let explore = self.shared.config.semantic.explore;
         let picked: Vec<ClaimId> = self
             .shared
             .read(|m| {
@@ -212,7 +215,7 @@ impl SemanticRunner {
                 let mut cands: Vec<&Claim> = ids
                     .iter()
                     .filter_map(|id| m.claims.get(id))
-                    .filter(|c| is_candidate(m, c))
+                    .filter(|c| is_candidate(m, c, explore))
                     .collect();
                 cands.sort_by_key(|c| {
                     (
@@ -315,9 +318,23 @@ impl SemanticRunner {
             self.shared.config.semantic.model.clone()
         };
         let root = self.shared.config.repo_root.clone();
+        let explore = self.shared.config.semantic.explore.then(|| Exploration {
+            repo_root: root.clone(),
+            max_turns: self.shared.config.semantic.max_turns,
+        });
         let built = self
             .shared
-            .read(|m| build_request(m, &root, &claim, &mode, &model_name, analysis.clone()))
+            .read(|m| {
+                build_request(
+                    m,
+                    &root,
+                    &claim,
+                    &mode,
+                    &model_name,
+                    analysis.clone(),
+                    explore.clone(),
+                )
+            })
             .0;
         let Some((request, key)) = built else {
             self.shared.bus.publish(Event::AnalysisCompleted {
@@ -392,6 +409,7 @@ impl SemanticRunner {
         });
         let provider = ModelProvider {
             shared: self.shared.clone(),
+            filter: crate::discover::PathFilter::new(&self.shared.config),
         };
         let tx = self.cmd_tx.clone();
         let bus = self.shared.bus.clone();
@@ -517,7 +535,11 @@ impl SemanticRunner {
         }
         let ok = self
             .shared
-            .read(|m| m.claims.get(&claim).is_some_and(|c| is_candidate(m, c)))
+            .read(|m| {
+                m.claims
+                    .get(&claim)
+                    .is_some_and(|c| is_candidate(m, c, self.shared.config.semantic.explore))
+            })
             .0;
         if ok {
             self.push(claim, JobMode::Assess, false);
@@ -642,8 +664,10 @@ fn challenge_str(c: Option<ChallengeOutcome>) -> &'static str {
     }
 }
 
-/// Should semantic analysis look at this claim?
-pub(crate) fn is_candidate(m: &Model, c: &Claim) -> bool {
+/// Should semantic analysis look at this claim? In explore mode the model finds the code
+/// itself, so any undecided obligation qualifies; with excerpts only, the claim must name
+/// a symbol explicitly (name-similarity links alone send unrelated code).
+pub(crate) fn is_candidate(m: &Model, c: &Claim, explore: bool) -> bool {
     if !c.is_obligation() || c.documented_signature.is_some() {
         return false;
     }
@@ -663,12 +687,9 @@ pub(crate) fn is_candidate(m: &Model, c: &Claim) -> bool {
     {
         return false;
     }
-    m.edges_from(&node).any(|e| {
-        matches!(
-            e.kind,
-            EdgeKind::ReferencesSymbol | EdgeKind::MentionsSymbol
-        ) && e.to.is_some()
-    })
+    explore
+        || m.edges_from(&node)
+            .any(|e| e.kind == EdgeKind::ReferencesSymbol && e.to.is_some())
 }
 
 fn symbol_context(
@@ -725,7 +746,13 @@ fn build_request(
     mode: &JobMode,
     model_name: &str,
     id: AnalysisId,
+    explore: Option<Exploration>,
 ) -> Option<(AnalysisRequest, String)> {
+    let max_symbols = if explore.is_some() {
+        MAX_HINTS
+    } else {
+        MAX_INITIAL_SYMBOLS
+    };
     let claim = m.claims.get(claim_id)?;
     let doc = m.documents.get(&claim.document)?;
     let doc_text = read_text(root, &doc.path)
@@ -779,7 +806,7 @@ fn build_request(
             format!("name similarity with \"{}\"", e.target_text)
         };
         picks.push((s, reason));
-        if picks.len() >= MAX_INITIAL_SYMBOLS {
+        if picks.len() >= max_symbols {
             break;
         }
     }
@@ -789,7 +816,7 @@ fn build_request(
         // Every excerpt must come from the indexed file content; a changed file aborts.
         symbols.push(symbol_context(m, root, s, reason, &mut cache)?);
     }
-    if symbols.is_empty() {
+    if symbols.is_empty() && explore.is_none() {
         return None;
     }
     let mut key_parts: Vec<String> = vec![
@@ -802,6 +829,9 @@ fn build_request(
         ))
         .to_string(),
     ];
+    if let Some(x) = &explore {
+        key_parts.push(format!("explore:{}", x.max_turns));
+    }
     key_parts.push(match mode {
         JobMode::Assess => "assess".into(),
         JobMode::Challenge { prior, .. } => format!(
@@ -834,6 +864,7 @@ fn build_request(
             },
         },
         model: model_name.to_string(),
+        explore,
     };
     Some((request, key))
 }
@@ -841,7 +872,12 @@ fn build_request(
 /// Context expansion against the live model (reads current, hash-checked files).
 struct ModelProvider {
     shared: Arc<Shared>,
+    /// Which repository files the model may cite outside the index.
+    filter: crate::discover::PathFilter,
 }
+
+/// Explore mode: largest unindexed file a citation may be checked against.
+const MAX_UNTRACKED_BYTES: u64 = 4 * 1024 * 1024;
 
 impl ContextProvider for ModelProvider {
     fn expand(&self, wanted: &ContextWanted) -> Option<SymbolContext> {
@@ -866,6 +902,105 @@ impl ContextProvider for ModelProvider {
             })
             .0
     }
+
+    fn code_file(&self, path: &str) -> Option<CodeFile> {
+        let root = self.shared.config.repo_root.clone();
+        let rel = repo_relative(&root, path)?;
+        let rp = concordance_core::RepoPath::from_relative_str(&rel)?;
+        // Indexed source or specification: must still match the indexed content.
+        let indexed = self
+            .shared
+            .read(|m| {
+                m.file_by_path(&rp)
+                    .map(|f| (NodeRef::File(f.id.clone()), f.content_hash.clone(), false))
+                    .or_else(|| {
+                        m.document_by_path(&rp).map(|d| {
+                            (
+                                NodeRef::Document(d.id.clone()),
+                                d.content_hash.clone(),
+                                true,
+                            )
+                        })
+                    })
+            })
+            .0;
+        let document_ext = matches!(
+            rp.extension().map(|e| e.to_ascii_lowercase()).as_deref(),
+            Some("md" | "markdown" | "txt" | "rst" | "adoc")
+        );
+        let (text, dependency, document) = match indexed {
+            Some((node, hash, doc)) => {
+                let text = read_text(&root, &rp).ok()?;
+                if ContentHash::of_str(&text) != hash {
+                    return None;
+                }
+                let dep = concordance_core::evidence::Dependency {
+                    node,
+                    content_hash: hash,
+                };
+                (text, Some(dep), doc)
+            }
+            None => {
+                // Any other repository file the analysis would not skip (not excluded,
+                // ignored, hidden or build output), read as it is now.
+                if !self.filter.readable(&rp) {
+                    return None;
+                }
+                let abs = root.join(rp.as_str());
+                if std::fs::metadata(&abs).ok()?.len() > MAX_UNTRACKED_BYTES {
+                    return None;
+                }
+                (std::fs::read_to_string(&abs).ok()?, None, document_ext)
+            }
+        };
+        Some(CodeFile {
+            path: rp,
+            lines: text.lines().map(str::to_string).collect(),
+            dependency,
+            document,
+        })
+    }
+
+    fn enclosing_symbol(
+        &self,
+        file: &concordance_core::RepoPath,
+        start_line: u32,
+        end_line: u32,
+    ) -> Option<(concordance_core::SymbolId, ContentHash)> {
+        self.shared
+            .read(|m| {
+                let f = m.file_by_path(file)?;
+                m.symbols_of(&f.id)
+                    .filter(|s| s.range.start_line <= start_line && s.range.end_line >= end_line)
+                    .min_by_key(|s| s.range.end_line - s.range.start_line)
+                    .map(|s| (s.id.clone(), s.content_hash.clone()))
+            })
+            .0
+    }
+}
+
+/// A path the model named, made repository-relative with `/` separators: accepts
+/// relative paths and absolute paths under the repository (any slash style or case of
+/// the root on Windows). `None` for paths outside the repository or with `..`.
+fn repo_relative(root: &Path, path: &str) -> Option<String> {
+    let norm = |s: &str| s.replace('\\', "/");
+    let p = norm(path.trim());
+    let r = norm(&root.display().to_string());
+    let r = r.trim_end_matches('/');
+    let rel = if p.len() > r.len()
+        && p[..r.len()].eq_ignore_ascii_case(r)
+        && p.as_bytes()[r.len()] == b'/'
+    {
+        p[r.len() + 1..].to_string()
+    } else if p.starts_with('/') || p.get(1..2) == Some(":") {
+        return None;
+    } else {
+        p.trim_start_matches("./").to_string()
+    };
+    if rel.is_empty() || rel.split('/').any(|seg| seg == "..") {
+        return None;
+    }
+    Some(rel)
 }
 
 /// Convert a validated analysis result into evidence about the claim.
@@ -918,7 +1053,10 @@ fn to_evidence(
             )
         }
     };
-    let has_cites = !a.supporting.is_empty() || !a.contradicting.is_empty();
+    // Evidence resting only on files outside the index is weak: their edits go unseen.
+    let has_cites = a.supporting.iter().chain(&a.contradicting).any(|c| {
+        c.role == CitationRole::Implementation && !a.untracked.contains(&c.range.path.to_string())
+    });
     let strength = if has_cites && stance != Stance::Inconclusive {
         Strength::Moderate
     } else {
@@ -954,6 +1092,12 @@ fn to_evidence(
     if let Some(d) = downgrade.filter(|d| !d.is_empty()) {
         summary.push_str(&format!(" [Validation: {d}.]"));
     }
+    if !a.untracked.is_empty() {
+        summary.push_str(&format!(
+            " [Cites files Concordance does not index ({}); edits to them do not invalidate this result.]",
+            a.untracked.join(", ")
+        ));
+    }
     if !a.rejected.is_empty() {
         summary.push_str(&format!(
             " [{} citation(s) rejected by validation.]",
@@ -972,5 +1116,38 @@ fn to_evidence(
         validity: Validity::Valid,
         revision: ctx.revision,
         created_at: ctx.now,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repo_relative;
+    use std::path::Path;
+
+    #[test]
+    fn model_paths_are_made_repository_relative() {
+        let root = Path::new("C:/dev/rho");
+        let rel = |p: &str| repo_relative(root, p);
+        assert_eq!(
+            rel("modules/a/src/lib.rs").as_deref(),
+            Some("modules/a/src/lib.rs")
+        );
+        assert_eq!(rel("./modules/a.rs").as_deref(), Some("modules/a.rs"));
+        assert_eq!(
+            rel(r"C:\dev\rho\modules\a.rs").as_deref(),
+            Some("modules/a.rs")
+        );
+        assert_eq!(
+            rel("c:/DEV/rho/modules/a.rs").as_deref(),
+            Some("modules/a.rs")
+        );
+        assert_eq!(
+            rel("C:/dev/rhox/a.rs"),
+            None,
+            "a sibling directory is outside"
+        );
+        assert_eq!(rel("C:/Windows/win.ini"), None);
+        assert_eq!(rel("/etc/passwd"), None);
+        assert_eq!(rel("modules/../../secret"), None);
     }
 }

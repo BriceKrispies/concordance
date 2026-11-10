@@ -10,7 +10,7 @@ use std::pin::Pin;
 
 /// Bump whenever prompts, schemas or citation-validation rules change; part of every
 /// cache key and of the engine's persisted analysis version.
-pub const PROMPT_VERSION: &str = "concordance-semantic-v1";
+pub const PROMPT_VERSION: &str = "concordance-semantic-v4";
 pub const MAX_ROUNDS: u32 = 2;
 pub const MAX_EXPANSIONS_PER_ROUND: usize = 4;
 /// Upper bound on excerpt text sent per request (bytes, all excerpts together).
@@ -60,13 +60,25 @@ pub enum AnalysisMode {
     Challenge { prior: Assessment },
 }
 
+/// Explore mode: the model searches the repository itself with read-only tools.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Exploration {
+    /// The analyzed repository (the only directory the tools may read).
+    pub repo_root: std::path::PathBuf,
+    pub max_turns: u32,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisRequest {
     pub id: AnalysisId,
     pub claim: ClaimContext,
+    /// Excerpt mode: the excerpts sent. Explore mode: starting hints (name and location only).
     pub symbols: Vec<SymbolContext>,
     pub mode: AnalysisMode,
     pub model: String,
+    /// `Some` = explore mode.
+    #[serde(default)]
+    pub explore: Option<Exploration>,
 }
 
 /// Additional context the model asked for.
@@ -81,6 +93,37 @@ pub enum ContextWanted {
 /// reading current file contents (verifying hashes).
 pub trait ContextProvider: Send + Sync {
     fn expand(&self, wanted: &ContextWanted) -> Option<SymbolContext>;
+
+    /// Explore mode: the current text of an indexed source file named by the model
+    /// (repository-relative or absolute under the repository), only if it still matches
+    /// the indexed content.
+    fn code_file(&self, _path: &str) -> Option<CodeFile> {
+        None
+    }
+
+    /// Explore mode: the smallest indexed symbol enclosing the lines, with its hash.
+    fn enclosing_symbol(
+        &self,
+        _file: &RepoPath,
+        _start_line: u32,
+        _end_line: u32,
+    ) -> Option<(SymbolId, ContentHash)> {
+        None
+    }
+}
+
+/// A repository file the model cited, as it currently is.
+#[derive(Clone, Debug)]
+pub struct CodeFile {
+    pub path: RepoPath,
+    /// Line 1 is `lines[0]`.
+    pub lines: Vec<String>,
+    /// For an indexed file (source or specification): its node and hash-checked content
+    /// hash, a dependency when no symbol encloses a citation. `None` for a file the
+    /// analysis does not index, whose edits cannot invalidate the result.
+    pub dependency: Option<Dependency>,
+    /// Documentation (Markdown, text): cited as specification, never as implementation.
+    pub document: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +183,10 @@ pub struct Assessment {
     pub downgraded: Option<String>,
     /// Set in `Challenge` mode.
     pub challenge: Option<ChallengeOutcome>,
+    /// Explore mode: cited files the analysis does not index. Their edits do not
+    /// invalidate this result.
+    #[serde(default)]
+    pub untracked: Vec<String>,
 }
 
 /// Metadata about the model invocation(s). Never contains raw model reasoning.
@@ -157,6 +204,9 @@ pub struct InvocationRecord {
     pub session_ids: Vec<String>,
     /// Hash of the final prompt text.
     pub prompt_hash: ContentHash,
+    /// Explore mode: tool-use turns the model took.
+    #[serde(default)]
+    pub turns: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -197,6 +247,8 @@ pub struct BackendRequest<'a> {
     pub prompt: &'a str,
     pub schema: &'a serde_json::Value,
     pub model: &'a str,
+    /// `Some` = give the model read-only repository tools.
+    pub tools: Option<&'a Exploration>,
 }
 
 pub struct BackendResponse {
@@ -207,6 +259,7 @@ pub struct BackendResponse {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub session_id: Option<String>,
+    pub turns: Option<u64>,
 }
 
 /// A structured-output model backend. `ClaudeCli` in production; tests script responses.

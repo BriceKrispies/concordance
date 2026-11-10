@@ -21,6 +21,9 @@
 //! max_concurrent = 2
 //! max_analyses_per_scan = 40
 //! claude_path = "claude"
+//! context = "explore"              # "explore": the model searches the repository read-only;
+//!                                  # "excerpts": it sees only linked symbol excerpts
+//! max_turns = 20                   # explore: tool-use turns per analysis
 //!
 //! [server]
 //! host = "127.0.0.1"
@@ -75,6 +78,8 @@ pub struct SemanticFile {
     pub max_concurrent: Option<usize>,
     pub max_analyses_per_scan: Option<usize>,
     pub claude_path: Option<String>,
+    pub context: Option<String>,
+    pub max_turns: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -106,6 +111,11 @@ pub struct SemanticConfig {
     pub max_concurrent: usize,
     pub max_analyses_per_scan: usize,
     pub claude_path: String,
+    /// The model searches the repository with read-only tools (Read, Grep, Glob) instead
+    /// of seeing only the excerpts of linked symbols.
+    pub explore: bool,
+    /// Explore mode: maximum tool-use turns per analysis.
+    pub max_turns: u32,
 }
 
 /// Fully resolved configuration. All paths absolute.
@@ -206,6 +216,16 @@ impl Config {
             max_concurrent: s.max_concurrent.unwrap_or(2).clamp(1, 8),
             max_analyses_per_scan: s.max_analyses_per_scan.unwrap_or(40),
             claude_path: s.claude_path.unwrap_or_else(|| "claude".to_string()),
+            explore: match s.context.as_deref() {
+                None | Some("explore") => true,
+                Some("excerpts") => false,
+                Some(other) => {
+                    return Err(format!(
+                        "semantic.context must be \"explore\" or \"excerpts\", not \"{other}\""
+                    ))
+                }
+            },
+            max_turns: s.max_turns.unwrap_or(20).clamp(1, 60),
         };
 
         Ok(Config {

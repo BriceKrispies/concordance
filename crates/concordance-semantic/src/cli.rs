@@ -10,6 +10,7 @@ use tokio::process::{Child, Command};
 const STDOUT_CAP: u64 = 4 * 1024 * 1024;
 const STDERR_CAP: u64 = 16 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+const READ_ONLY_TOOLS: &str = "Read,Grep,Glob";
 const NOT_FOUND: &str = "Claude Code CLI not found on PATH (configure semantic.claude_path)";
 
 /// Production backend: the locally installed Claude Code CLI in print mode.
@@ -92,14 +93,29 @@ impl ClaudeCli {
     fn args(req: &BackendRequest<'_>) -> Result<Vec<String>, AnalysisError> {
         let schema = serde_json::to_string(req.schema)
             .map_err(|e| AnalysisError::Invocation(format!("schema serialization: {e}")))?;
-        Ok(vec![
+        let mut args: Vec<String> = vec![
             "-p".into(),
             "--output-format".into(),
             "json".into(),
             "--json-schema".into(),
             schema,
-            "--tools".into(),
-            String::new(),
+        ];
+        match req.tools {
+            // Read-only repository tools on the analyzed repository; no MCP servers.
+            Some(x) => args.extend([
+                "--tools".into(),
+                READ_ONLY_TOOLS.into(),
+                "--allowedTools".into(),
+                READ_ONLY_TOOLS.into(),
+                "--add-dir".into(),
+                x.repo_root.display().to_string(),
+                "--max-turns".into(),
+                x.max_turns.to_string(),
+                "--strict-mcp-config".into(),
+            ]),
+            None => args.extend(["--tools".into(), String::new()]),
+        }
+        args.extend([
             "--no-session-persistence".into(),
             "--model".into(),
             req.model.to_string(),
@@ -107,7 +123,8 @@ impl ClaudeCli {
             String::new(),
             "--system-prompt".into(),
             req.system.to_string(),
-        ])
+        ]);
+        Ok(args)
     }
 
     async fn run(
@@ -252,6 +269,7 @@ pub fn parse_cli_output(text: &str) -> Result<BackendResponse, AnalysisError> {
         cost_usd: v.get("total_cost_usd").and_then(|d| d.as_f64()),
         input_tokens: v.pointer("/usage/input_tokens").and_then(|d| d.as_u64()),
         output_tokens: v.pointer("/usage/output_tokens").and_then(|d| d.as_u64()),
+        turns: v.get("num_turns").and_then(|d| d.as_u64()),
         session_id: v
             .get("session_id")
             .and_then(|s| s.as_str())

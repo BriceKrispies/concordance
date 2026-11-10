@@ -21,6 +21,8 @@ challenger_model = "opus"
 max_concurrent = 2
 max_analyses_per_scan = 40
 claude_path = "claude"
+context = "explore"                      # the model searches the repo read-only; "excerpts" = linked symbols only
+max_turns = 20                           # explore: tool-use turns per analysis
 
 [server]
 host = "127.0.0.1"

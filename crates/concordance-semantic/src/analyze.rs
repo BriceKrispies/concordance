@@ -1,7 +1,7 @@
 //! The Layer B/C driver: prompt, invoke, validate, optionally expand context and repeat.
 
 use crate::model::*;
-use crate::prompt::{self, SYSTEM_PROMPT};
+use crate::prompt::{self, EXPLORE_SYSTEM_PROMPT, SYSTEM_PROMPT};
 use crate::schema::{self, RawAssessment};
 use crate::validate;
 use concordance_core::evidence::Dependency;
@@ -15,11 +15,8 @@ pub async fn analyze(
     cancel: CancelRx,
 ) -> Result<AnalysisResult, AnalysisError> {
     let challenge = matches!(request.mode, AnalysisMode::Challenge { .. });
-    let schema_value = if challenge {
-        schema::challenge_schema()
-    } else {
-        schema::assess_schema()
-    };
+    let explore = request.explore.clone();
+    let schema_value = schema::schema_for(explore.is_some(), challenge);
 
     let mut symbols = request.symbols.clone();
     let mut record = InvocationRecord {
@@ -33,6 +30,7 @@ pub async fn analyze(
         output_tokens: None,
         session_ids: Vec::new(),
         prompt_hash: ContentHash::of_str(""),
+        turns: None,
     };
 
     let mut round = 0u32;
@@ -41,14 +39,23 @@ pub async fn analyze(
         if *cancel.borrow() {
             return Err(AnalysisError::Cancelled);
         }
-        let built = prompt::build(&request, &symbols);
+        let built = if explore.is_some() {
+            prompt::build_explore(&request)
+        } else {
+            prompt::build(&request, &symbols)
+        };
         let resp = backend
             .invoke(
                 BackendRequest {
-                    system: SYSTEM_PROMPT,
+                    system: if explore.is_some() {
+                        EXPLORE_SYSTEM_PROMPT
+                    } else {
+                        SYSTEM_PROMPT
+                    },
                     prompt: &built.text,
                     schema: &schema_value,
                     model: &request.model,
+                    tools: explore.as_ref(),
                 },
                 cancel.clone(),
             )
@@ -59,6 +66,7 @@ pub async fn analyze(
         record.cost_usd = add_opt(record.cost_usd, resp.cost_usd);
         record.input_tokens = add_opt(record.input_tokens, resp.input_tokens);
         record.output_tokens = add_opt(record.output_tokens, resp.output_tokens);
+        record.turns = add_opt(record.turns, resp.turns);
         if record.reported_model.is_none() {
             record.reported_model = resp.reported_model.clone();
         }
@@ -72,9 +80,9 @@ pub async fn analyze(
         } else {
             schema::parse_assess(&resp.structured)?
         };
-        let assessment = validate::finalize(&raw, &built);
+        let mut assessment = validate::finalize(&raw, &built, provider);
 
-        if round < MAX_ROUNDS && !raw.needed_context.is_empty() {
+        if explore.is_none() && round < MAX_ROUNDS && !raw.needed_context.is_empty() {
             let mut added = false;
             for want in raw.needed_context.iter().take(MAX_EXPANSIONS_PER_ROUND) {
                 let path = want.symbol_path.trim();
@@ -105,6 +113,47 @@ pub async fn analyze(
                 node: NodeRef::Symbol(s.symbol.clone()),
                 content_hash: s.content_hash.clone(),
             });
+        }
+        if explore.is_some() {
+            // The result depends on what it cites: the enclosing symbol, else the file.
+            // Cited files outside the index are listed instead; they cannot invalidate it.
+            let mut untracked = Vec::new();
+            for c in assessment
+                .supporting
+                .iter()
+                .chain(&assessment.contradicting)
+            {
+                if c.range.path == request.claim.document_path {
+                    continue;
+                }
+                let dep = match provider.enclosing_symbol(
+                    &c.range.path,
+                    c.range.start_line,
+                    c.range.end_line,
+                ) {
+                    Some((id, hash)) => Some(Dependency {
+                        node: NodeRef::Symbol(id),
+                        content_hash: hash,
+                    }),
+                    None => provider
+                        .code_file(c.range.path.as_str())
+                        .and_then(|f| f.dependency),
+                };
+                match dep {
+                    Some(d) => {
+                        if !dependencies.iter().any(|x| x.node == d.node) {
+                            dependencies.push(d);
+                        }
+                    }
+                    None => {
+                        let p = c.range.path.to_string();
+                        if !untracked.contains(&p) {
+                            untracked.push(p);
+                        }
+                    }
+                }
+            }
+            assessment.untracked = untracked;
         }
         return Ok(AnalysisResult {
             id: request.id,

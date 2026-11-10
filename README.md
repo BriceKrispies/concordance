@@ -8,7 +8,7 @@ It reads the claims in your docs (requirements, MUST/SHALL statements, documente
 - Languages are plugins. Rust and TypeScript are built in.
 - It runs locally and watches the repository, updating findings as files change. It never modifies the repository it analyzes.
 - Use it headless (`scan`, `watch`, `report`, with JSON output and CI exit codes) or through a local web UI (`serve`).
-- Optional semantic checks of prose claims can use an LLM. They are off by default.
+- Optional semantic checks of prose claims use the Claude Code CLI. The model searches the repository read-only and every citation it gives is checked against the real lines. They are off by default.
 
 ## Usage
 

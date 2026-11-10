@@ -62,6 +62,8 @@ pub fn config_for(repo: &Path, state: &Path, semantic: bool) -> Config {
     let mut file = ConfigFile::default();
     file.semantic.enabled = Some(semantic);
     file.semantic.max_concurrent = Some(2);
+    // These tests exercise excerpt-mode dependency tracking with scripted responses.
+    file.semantic.context = Some("excerpts".into());
     Config::resolve(
         file,
         None,
@@ -187,6 +189,7 @@ impl Backend for FixedBackend {
                 input_tokens: None,
                 output_tokens: None,
                 session_id: None,
+                turns: None,
             })
         })
     }
