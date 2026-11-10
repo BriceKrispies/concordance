@@ -18,9 +18,13 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// A fresh directory per call: tests in this file run in parallel in one process, so the
+/// process id alone would let one test delete another's state.
 fn temp_dir(tag: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let d = std::env::temp_dir().join(format!(
-        "concordance-lint-proof-{}-{tag}",
+        "concordance-lint-proof-{}-{n}-{tag}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&d);
