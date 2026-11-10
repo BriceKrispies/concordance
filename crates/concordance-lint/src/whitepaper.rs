@@ -1,4 +1,4 @@
-//! White paper IDs (`G-1`, `NG-1`, `B-1`, `C-1`, `D-1`, `Q-1`) and the spec index table.
+//! White paper IDs (`G-1`, `NG-1`, `B-1`, `C-1`, `D-1`, `K-1`, `Q-1`) and the spec index table.
 
 /// An ID defined in the white paper, with its text and line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -8,7 +8,7 @@ pub struct WhitePaperId {
     pub line: u32,
 }
 
-const PREFIXES: [&str; 6] = ["G", "NG", "B", "C", "D", "Q"];
+const PREFIXES: [&str; 7] = ["G", "NG", "B", "C", "D", "K", "Q"];
 
 /// `G-1`, `NG-12`: one of the white-paper prefixes, a dash and a number.
 pub fn is_whitepaper_id(s: &str) -> bool {

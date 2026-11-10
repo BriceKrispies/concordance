@@ -157,13 +157,22 @@ pub fn run(input: &LintInput<'_>) -> Vec<LintFinding> {
         );
     }
     if wp_text.is_some() {
-        for id in wp_ids.iter().filter(|i| i.id.starts_with("G-")) {
+        // Goals and constraints are both promises: each needs a requirement that demonstrates it.
+        for id in wp_ids
+            .iter()
+            .filter(|i| i.id.starts_with("G-") || i.id.starts_with("K-"))
+        {
             if !traced.contains(&id.id) {
+                let what = if id.id.starts_with("G-") {
+                    "goal"
+                } else {
+                    "constraint"
+                };
                 sink.err(
                     "R5",
                     wp_path,
                     id.line,
-                    format!("goal `{}` has no requirement tracing to it", id.id),
+                    format!("{what} `{}` has no requirement tracing to it", id.id),
                 );
             }
         }
