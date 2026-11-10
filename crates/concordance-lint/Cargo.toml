@@ -10,3 +10,4 @@ concordance-markdown.workspace = true
 concordance-graph.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+globset.workspace = true

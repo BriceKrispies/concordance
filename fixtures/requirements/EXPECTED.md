@@ -11,4 +11,20 @@ Requirement IDs tie specification statements to the tests that verify them.
 | LEX-002 | any | unverified: no test declares `Verifies: LEX-002` |
 | `verifies_a_requirement_that_does_not_exist` | any | violated: `Verifies: LEX-404` names an undefined requirement |
 
-Exercised by `tests/tests/requirements.rs`.
+The `LEX-001` result going stale after a source change is not a row (it needs a second scan after an edit); `tests/tests/requirements.rs` keeps it.
+
+## Cases
+
+Checked by the RES-001 conformance proof (see `docs/requirements.md`, "Case tables"). Adding a row adds a case.
+A row passes when some open finding whose title or claim text contains `Claim contains` has the given status,
+category and location. `absent` and `absent:status` mean no such finding exists; `!x` negates a cell.
+Rows that name a results file install it as the test-results file before the scan.
+
+| Case | Requirement | Results | Claim contains | Status | Category | Location |
+|---|---|---|---|---|---|---|
+| no-run-linked | RES-001 | none | balances | unverified |  |  |
+| no-test-declares | RES-001 | none | MUST reject a block comment | unverified |  |  |
+| undefined-requirement | RES-001 | none | unknown requirement `LEX-404` | violated |  |  |
+| run-passed | RES-001 | results/passed.txt | balances | verified | supported |  |
+| unrelated-pass | RES-001 | results/passed.txt | MUST reject a block comment | unverified |  |  |
+| run-failed | RES-001 | results/failed.txt | balances | violated | test_failure |  |

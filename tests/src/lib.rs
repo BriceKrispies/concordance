@@ -1,6 +1,8 @@
 //! Shared helpers for the integration tests: temporary fixture copies, engine startup,
 //! scripted semantic backends and a minimal HTTP/SSE client.
 
+pub mod conformance;
+
 use concordance_core::config::{Config, ConfigFile, Overrides};
 use concordance_core::event::{Envelope, Event};
 use concordance_engine::{EngineHandle, EngineOptions};

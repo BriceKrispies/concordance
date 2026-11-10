@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<testsuites><testsuite name="src/mixer.test.ts">
+<testcase classname="src/mixer.test.ts" name="Mixer &gt; rejects levels above 100"><failure message="expected RangeError">AssertionError</failure></testcase>
+<testcase classname="src/mixer.test.ts" name="Mixer &gt; keeps an accepted level"></testcase>
+</testsuite></testsuites>

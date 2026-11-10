@@ -9,6 +9,7 @@ descriptive = ["docs/whitepaper.md"]
 [lint]
 whitepaper = "docs/whitepaper.md"
 strict = true
+spec = ["docs/spec/**"]
 
 [semantic]
 enabled = false

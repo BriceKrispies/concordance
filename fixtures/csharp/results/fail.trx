@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="r1" name="run" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult executionId="e1" testId="t1" testName="Volume.MixerTests.Rejects_level_above_100" outcome="Failed" />
+    <UnitTestResult executionId="e2" testId="t2" testName="Volume.MixerTests.Keeps_an_accepted_level" outcome="Passed" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Volume.MixerTests.Rejects_level_above_100" id="t1">
+      <TestMethod codeBase="Volume.dll" className="Volume.MixerTests" name="Rejects_level_above_100" />
+    </UnitTest>
+    <UnitTest name="Volume.MixerTests.Keeps_an_accepted_level" id="t2">
+      <TestMethod codeBase="Volume.dll" className="Volume.MixerTests" name="Keeps_an_accepted_level" />
+    </UnitTest>
+  </TestDefinitions>
+</TestRun>

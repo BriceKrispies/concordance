@@ -16,10 +16,12 @@
 //! [`lint`] is a pure function of the file texts and, for R3, the indexed code. [`lint_repo`]
 //! gathers the inputs from an engine model and the repository.
 
+mod cases;
 mod rules;
 mod text;
 mod whitepaper;
 
+pub use cases::{parse_cases, CaseRow, CaseTable};
 pub use whitepaper::{parse_index_table, parse_whitepaper, IndexRow, WhitePaperId};
 
 use concordance_core::config::{Config, LintConfig};
@@ -138,6 +140,8 @@ pub struct LintInput<'a> {
     /// The indexed code, for R3.
     pub model: Option<&'a Model>,
     pub settings: &'a LintConfig,
+    /// The repository root, to resolve `Cases:` files (`None`: they are not checked).
+    pub repo_root: Option<&'a std::path::Path>,
 }
 
 /// Run every rule. `strict` turns warnings into errors.
@@ -149,10 +153,22 @@ pub fn lint(input: &LintInput<'_>, strict: bool) -> LintReport {
 /// roots, the configured white paper, and the indexed code.
 pub fn lint_repo(model: &Model, config: &Config, strict: bool) -> LintReport {
     let root = &config.repo_root;
+    let globs = if config.lint.spec.is_empty() {
+        None
+    } else {
+        let mut b = globset::GlobSetBuilder::new();
+        for g in &config.lint.spec {
+            if let Ok(g) = globset::Glob::new(g) {
+                b.add(g);
+            }
+        }
+        b.build().ok()
+    };
     let mut docs: Vec<_> = model
         .documents
         .values()
         .filter(|d| d.authority.level == Authority::Normative)
+        .filter(|d| globs.as_ref().is_none_or(|g| g.is_match(d.path.as_str())))
         .collect();
     docs.sort_by(|a, b| a.path.cmp(&b.path));
     let mut specs = Vec::new();
@@ -183,6 +199,7 @@ pub fn lint_repo(model: &Model, config: &Config, strict: bool) -> LintReport {
         whitepaper: (&wp_path, wp_text.as_deref()),
         model: Some(model),
         settings: &config.lint,
+        repo_root: Some(root),
     };
     lint(&input, strict || config.lint.strict)
 }

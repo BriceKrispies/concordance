@@ -27,13 +27,38 @@ one obligation, test results are recorded but never verify or violate a claim on
 finding says the requirement should be split.
 
 A bold-ID requirement may carry attribute bullets directly after it (`Verify:`, `Boundary:`,
-`Traces:`, `Rationale:`, `Depends:`, `Status:`). They are stored on the requirement, not extracted as
+`Traces:`, `Rationale:`, `Depends:`, `Status:`, `Cases:`). They are stored on the requirement, not extracted as
 claims, and `concordance lint` checks them: see [spec-lint.md](spec-lint.md).
 
 An ID is an upper-case prefix, optional upper-case/digit segments and a number with an optional
 dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`. IDs are recognised only where they are
 defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
 (`PROJ-2147`) are not requirements.
+
+## Case tables
+
+A requirement with `Verify: conformance` states a capability once and lists the detail in case tables:
+the `## Cases` section of each file named by its `Cases:` attribute (see [spec-lint.md](spec-lint.md)).
+Concordance's own umbrella requirements (`docs/spec`) work this way. The prose above the table stays for
+people; the table is what is checked.
+
+| Column | Meaning |
+|---|---|
+| `Case` | a unique short name |
+| `Requirement` | the umbrella ID the row belongs to |
+| `Results` | `none`, or a results file relative to the fixture, installed as the configured test-results file before the scan |
+| `Claim contains` | a substring of the finding's title or of one of its claims' text (empty: every finding) |
+| `Status` | the expected status (`violated`, `verified`, `unverified`, `undocumented`, ...); `!status` for any other; `absent` or `absent:status` when no such finding may exist |
+| `Category` | optional: `structural_contradiction`, `test_failure`, `supported`, `missing_documentation`, ...; `!category` negates |
+| `Location` | optional `path[:line]`: one of the finding's locations is in that file and covers that line; `!path[:line]` negates |
+
+The driver (`tests/src/conformance.rs`) reads the requirement's `Cases:` list through the Markdown
+indexer, copies each fixture, groups the rows by `Results`, installs each results file, scans, and checks
+every row. It reports all failing rows by case name, fixture and what was found, and fails once. Adding a
+row is enough to add a case. A single `Verifies:` test per umbrella requirement runs the driver.
+
+The lint requirements use a lint case table (`Case | File | Rule | Line | Severity`, see
+`fixtures/spec-lint/EXPECTED.md`) run through the `concordance` binary.
 
 ## In the tests
 

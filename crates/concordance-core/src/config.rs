@@ -28,6 +28,7 @@
 //! [lint]                          # `concordance lint` (see docs/spec-lint.md)
 //! whitepaper = "docs/whitepaper.md"
 //! strict = false                   # warnings fail the lint
+//! spec = ["docs/spec/**"]           # lint only these normative files (default: all)
 //! vague_words = ["fast"]           # replaces the built-in banned-word list
 //! internal_markers = ["shard"]     # added to the built-in internal-detail words
 //!
@@ -75,6 +76,9 @@ pub struct LintFile {
     pub vague_words: Option<Vec<String>>,
     #[serde(default)]
     pub internal_markers: Vec<String>,
+    /// Globs (repository-relative) restricting which normative files are linted.
+    #[serde(default)]
+    pub spec: Vec<String>,
 }
 
 /// Resolved `[lint]` settings.
@@ -87,6 +91,8 @@ pub struct LintConfig {
     pub vague_words: Option<Vec<String>>,
     /// Extra words that mark an internal detail, added to the built-in ones.
     pub internal_markers: Vec<String>,
+    /// Globs restricting which normative files are linted; empty means all of them.
+    pub spec: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -271,6 +277,7 @@ impl Config {
             strict: file.lint.strict.unwrap_or(false),
             vague_words: file.lint.vague_words,
             internal_markers: file.lint.internal_markers,
+            spec: file.lint.spec,
         };
 
         Ok(Config {

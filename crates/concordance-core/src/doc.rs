@@ -184,16 +184,18 @@ pub struct RequirementAttributes {
     pub rationale: Option<String>,
     pub depends: Option<String>,
     pub status: Option<String>,
+    pub cases: Option<String>,
 }
 
 impl RequirementAttributes {
-    pub const NAMES: [&'static str; 6] = [
+    pub const NAMES: [&'static str; 7] = [
         "Verify",
         "Boundary",
         "Traces",
         "Rationale",
         "Depends",
         "Status",
+        "Cases",
     ];
 
     pub fn is_empty(&self) -> bool {
@@ -203,6 +205,7 @@ impl RequirementAttributes {
             && self.rationale.is_none()
             && self.depends.is_none()
             && self.status.is_none()
+            && self.cases.is_none()
     }
 
     /// The value of attribute `name` (one of [`Self::NAMES`]).
@@ -214,6 +217,7 @@ impl RequirementAttributes {
             "Rationale" => self.rationale.as_deref(),
             "Depends" => self.depends.as_deref(),
             "Status" => self.status.as_deref(),
+            "Cases" => self.cases.as_deref(),
             _ => None,
         }
     }
@@ -227,6 +231,7 @@ impl RequirementAttributes {
             "Rationale" => &mut self.rationale,
             "Depends" => &mut self.depends,
             "Status" => &mut self.status,
+            "Cases" => &mut self.cases,
             _ => return false,
         };
         if slot.is_none() {

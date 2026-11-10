@@ -35,3 +35,17 @@ states. Concordance should report the gaps as `undocumented`, not invent claims.
   not report it as a finding about the code's behaviour.
 - The phrase "The application loads configuration at startup" should be classed as an ordinary statement,
   not as a verified claim about `load_config()`.
+
+## Cases
+
+Checked by the LANG-001 conformance proof (see `docs/requirements.md`, "Case tables"). Adding a row adds a case.
+A row passes when some open finding whose title or claim text contains `Claim contains` has the given status,
+category and location. `absent` and `absent:status` mean no such finding exists; `!x` negates a cell.
+
+| Case | Requirement | Results | Claim contains | Status | Category | Location |
+|---|---|---|---|---|---|---|
+| panic-gap | LANG-001 | none | Undocumented panics: `undocumented::shutdown` | undocumented | missing_documentation | src/lib.rs |
+| error-gap | LANG-001 | none | Undocumented errors: `undocumented::load_config` | undocumented | missing_documentation | src/lib.rs |
+| config-gap | LANG-001 | none | Undocumented configuration: `undocumented::load_config` | undocumented | missing_documentation | src/lib.rs |
+| gaps-are-documentation | LANG-001 | none |  | absent:undocumented | !missing_documentation |  |
+| gaps-are-in-code | LANG-001 | none |  | absent:undocumented |  | !src/lib.rs |

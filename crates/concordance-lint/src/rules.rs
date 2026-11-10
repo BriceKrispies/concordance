@@ -40,7 +40,14 @@ pub const INTERNAL_MARKERS: &[&str] = &[
     "internals",
 ];
 
-const VERIFY_METHODS: [&str; 5] = ["example", "property", "scenario", "budget", "proof"];
+const VERIFY_METHODS: [&str; 6] = [
+    "example",
+    "property",
+    "scenario",
+    "budget",
+    "proof",
+    "conformance",
+];
 const MODALS_OUTSIDE: [&str; 5] = ["must", "shall", "never", "always", "required"];
 
 struct Req<'a> {
@@ -145,7 +152,7 @@ pub fn run(input: &LintInput<'_>) -> Vec<LintFinding> {
         r1_atomic(r, &mut sink);
         r2_vague(r, input, &mut sink);
         r3_internals(r, input, &mut sink);
-        r4_provable(r, &mut sink);
+        r4_provable(r, input, &mut sink);
         r5_traceable(
             r,
             wp_text.is_some(),
@@ -407,7 +414,7 @@ fn first_word(s: &str) -> String {
         .to_lowercase()
 }
 
-fn r4_provable(r: &Req, sink: &mut Sink) {
+fn r4_provable(r: &Req, input: &LintInput<'_>, sink: &mut Sink) {
     let path = &r.file.path;
     let id = &r.block.id;
     let Some(attr) = r.block.attribute("Verify") else {
@@ -436,6 +443,7 @@ fn r4_provable(r: &Req, sink: &mut Sink) {
         );
         return;
     }
+    r4_cases(r, &method, input, sink);
     let s = statement_masked(r);
     if matches!(method.as_str(), "example" | "scenario") {
         let mut hit: Option<(usize, &str)> = None;
@@ -463,6 +471,67 @@ fn r4_provable(r: &Req, sink: &mut Sink) {
                 attr.line,
                 format!("{id}: the limit \"{phrase}\" needs `Verify: budget`, not {method}"),
             );
+        }
+    }
+}
+
+/// `Verify: conformance` needs `Cases:` files, each holding a `## Cases` table; `Cases:` is
+/// meaningless for any other method.
+fn r4_cases(r: &Req, method: &str, input: &LintInput<'_>, sink: &mut Sink) {
+    let path = &r.file.path;
+    let id = &r.block.id;
+    let cases = r.block.attribute("Cases");
+    if method != "conformance" {
+        if let Some(c) = cases {
+            sink.err(
+                "R4",
+                path,
+                c.line,
+                format!("{id}: `Cases:` is only for `Verify: conformance`, not {method}"),
+            );
+        }
+        return;
+    }
+    let Some(c) = cases else {
+        sink.err(
+            "R4",
+            path,
+            r.block.line,
+            format!("{id}: `Verify: conformance` needs a `Cases:` list of case-table files"),
+        );
+        return;
+    };
+    let files: Vec<&str> = c
+        .value
+        .split(',')
+        .map(|f| f.trim().trim_matches('`').trim())
+        .filter(|f| !f.is_empty())
+        .collect();
+    if files.is_empty() {
+        sink.err("R4", path, c.line, format!("{id}: `Cases:` names no file"));
+        return;
+    }
+    let Some(root) = input.repo_root else {
+        return;
+    };
+    for f in files {
+        match std::fs::read_to_string(root.join(f)) {
+            Err(_) => sink.err(
+                "R4",
+                path,
+                c.line,
+                format!("{id}: `Cases:` file `{f}` does not exist"),
+            ),
+            Ok(text) => {
+                if let Err(e) = crate::cases::parse_cases(&text) {
+                    sink.err(
+                        "R4",
+                        path,
+                        c.line,
+                        format!("{id}: `Cases:` file `{f}`: {e}"),
+                    );
+                }
+            }
         }
     }
 }

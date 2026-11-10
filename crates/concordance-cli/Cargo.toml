@@ -21,3 +21,6 @@ serde_json.workspace = true
 [[bin]]
 name = "concordance"
 path = "src/main.rs"
+
+[dev-dependencies]
+concordance-markdown.workspace = true

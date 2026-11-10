@@ -1,82 +1,12 @@
-//! A C# package through the C# plugin: structural drift, documented
-//! signatures, failure-site constraints and requirement verification from a
-//! TRX report, with exact `.cs` locations.
+//! What the C# case rows (`fixtures/csharp/EXPECTED.md`) cannot say: the project is indexed
+//! as C#, and the findings explain themselves.
 
-use concordance_core::config::{Config, ConfigFile, Overrides};
-use concordance_core::finding::{Finding, FindingCategory, FindingStatus, FindingSubject};
-use concordance_graph::Model;
-use concordance_tests::*;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-
-fn config(repo: &Path, state: &Path, results: &Path) -> Config {
-    Config::resolve(
-        ConfigFile::default(),
-        None,
-        Overrides {
-            repo: Some(repo.to_path_buf()),
-            spec_roots: vec![PathBuf::from("docs")],
-            src_roots: vec![PathBuf::from("src")],
-            state_dir: Some(state.to_path_buf()),
-            test_results: vec![results.to_path_buf()],
-            ..Default::default()
-        },
-        repo,
-        state,
-    )
-    .unwrap()
-}
-
-fn claim_finding<'a>(m: &'a Model, needle: &str) -> &'a Finding {
-    let claim = m
-        .claims
-        .values()
-        .find(|c| c.text.contains(needle))
-        .unwrap_or_else(|| panic!("no claim containing {needle:?}"));
-    m.findings
-        .values()
-        .find(|f| {
-            f.is_open()
-                && f.subject
-                    == FindingSubject::Claim {
-                        claim: claim.id.clone(),
-                    }
-        })
-        .unwrap_or_else(|| panic!("no finding for {needle:?}"))
-}
-
-fn trx(passed: bool) -> String {
-    let outcome = if passed { "Passed" } else { "Failed" };
-    format!(
-        r#"<?xml version="1.0" encoding="utf-8"?>
-<TestRun id="r1" name="run" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
-  <Results>
-    <UnitTestResult executionId="e1" testId="t1" testName="Volume.MixerTests.Rejects_level_above_100" outcome="{outcome}" />
-    <UnitTestResult executionId="e2" testId="t2" testName="Volume.MixerTests.Keeps_an_accepted_level" outcome="Passed" />
-  </Results>
-  <TestDefinitions>
-    <UnitTest name="Volume.MixerTests.Rejects_level_above_100" id="t1">
-      <TestMethod codeBase="Volume.dll" className="Volume.MixerTests" name="Rejects_level_above_100" />
-    </UnitTest>
-    <UnitTest name="Volume.MixerTests.Keeps_an_accepted_level" id="t2">
-      <TestMethod codeBase="Volume.dll" className="Volume.MixerTests" name="Keeps_an_accepted_level" />
-    </UnitTest>
-  </TestDefinitions>
-</TestRun>
-"#
-    )
-}
+use concordance_tests::conformance::scan_with;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn csharp_repository_is_reconciled_with_exact_cs_locations() {
-    let repo = fixture_copy("csharp");
-    let state = temp_dir("csharp-state");
-    let results = state.join("results.trx");
-    let r = start(config(&repo, &state, &results), None, 8192).await;
-    r.idle().await;
-    let m = r.engine.shared.read(|m| m.clone()).0;
-
-    // Indexed as C#, project from Volume.csproj.
+async fn csharp_project_is_indexed_and_findings_explain_themselves() {
+    let s = scan_with("csharp", None).await;
+    let m = &s.model;
     let file = m
         .files
         .values()
@@ -89,74 +19,23 @@ async fn csharp_repository_is_reconciled_with_exact_cs_locations() {
         .values()
         .any(|s| s.qualified_name() == "Volume::Volume::Mixer::SetVolume"));
 
-    // Removed function: violated, located in the spec.
-    let gone = claim_finding(&m, "ResetAll()");
-    assert_eq!(gone.status, FindingStatus::Violated, "{}", gone.explanation);
-    assert_eq!(gone.category, FindingCategory::StructuralContradiction);
-    assert_eq!(gone.locations[0].path.as_str(), "docs/spec.md");
-
-    // Documented signature differs from the code: violated, pointing at Mixer.cs.
-    let sig = claim_finding(&m, "int ParseLevel(string text)");
-    assert_eq!(sig.status, FindingStatus::Violated, "{}", sig.explanation);
+    let explain = |needle: &str| {
+        m.findings
+            .values()
+            .filter(|f| f.is_open() && f.title.contains(needle))
+            .map(|f| f.explanation.clone())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     assert!(
-        sig.locations
-            .iter()
-            .any(|l| l.path.as_str() == "src/Mixer.cs" && l.start_line == 25),
-        "{:?}",
-        sig.locations
-    );
-    assert!(
-        sig.explanation.contains("radix = 10"),
+        explain("int ParseLevel(string text)").contains("radix = 10"),
         "{}",
-        sig.explanation
+        explain("int ParseLevel(string text)")
     );
-
-    // MUST NOT throw, and the function throws.
-    let throws = claim_finding(&m, "MUST NOT throw");
-    assert_eq!(
-        throws.status,
-        FindingStatus::Violated,
-        "{}",
-        throws.explanation
-    );
+    // VOL-001 is linked to the xUnit test, no run yet.
     assert!(
-        throws
-            .locations
-            .iter()
-            .any(|l| l.path.as_str() == "src/Mixer.cs" && l.start_line == 29),
-        "{:?}",
-        throws.locations
-    );
-
-    // `Mixer.Volume` resolves (dotted type path), so it is not reported as dangling.
-    let vol = claim_finding(&m, "returns the current level");
-    assert_ne!(vol.status, FindingStatus::Violated, "{}", vol.explanation);
-
-    // VOL-001: linked to the vitest test, no run yet.
-    let req = claim_finding(&m, "SHALL reject a level above 100");
-    assert_eq!(req.status, FindingStatus::Unverified, "{}", req.explanation);
-    assert!(
-        req.explanation.contains("Rejects_level_above_100"),
+        explain("SHALL reject a level above 100").contains("Rejects_level_above_100"),
         "{}",
-        req.explanation
+        explain("SHALL reject a level above 100")
     );
-
-    // A passing TRX report verifies it; a failing one violates it.
-    tokio::time::sleep(Duration::from_millis(30)).await;
-    std::fs::write(&results, trx(true)).unwrap();
-    r.engine.request_scan(false).await;
-    r.idle().await;
-    let m = r.engine.shared.read(|m| m.clone()).0;
-    let req = claim_finding(&m, "SHALL reject a level above 100");
-    assert_eq!(req.status, FindingStatus::Verified, "{}", req.explanation);
-
-    std::fs::write(&results, trx(false)).unwrap();
-    r.engine.request_scan(false).await;
-    r.idle().await;
-    let m = r.engine.shared.read(|m| m.clone()).0;
-    let req = claim_finding(&m, "SHALL reject a level above 100");
-    assert_eq!(req.status, FindingStatus::Violated, "{}", req.explanation);
-    assert_eq!(req.category, FindingCategory::TestFailure);
-
-    r.stop().await;
 }

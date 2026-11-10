@@ -17,8 +17,9 @@ one `path:line: error[R1] message` line per finding.
 ## What is linted
 
 - **Specification files:** the Markdown files under the spec roots whose authority is `normative`
-  (set `[authority] normative = ["docs/spec/**"]`). Design documents are not linted. When no
-  normative file exists the lint reports rule `R0`.
+  (set `[authority] normative = ["docs/spec/**"]`). Design documents are not linted. `[lint] spec`
+  restricts this to the normative files matching its globs (repository-relative; default: all of them).
+  When no file is left the lint reports rule `R0`.
 - **White paper:** `[lint] whitepaper`, default `docs/whitepaper.md`. Its IDs `G-n`, `NG-n`, `B-n`, `K-n` (constraints),
   `C-n`, `D-n`, `Q-n` are bold openers (`- **G-1** ...`) or first table cells (`| B-1 | ... |`).
   Code fences and HTML comments are skipped. A missing white paper is one `R5` finding.
@@ -37,7 +38,7 @@ one `path:line: error[R1] message` line per finding.
 ```
 
 The list items directly after the opener that start with `Verify:`, `Boundary:`, `Traces:`,
-`Rationale:`, `Depends:` or `Status:` are the requirement's attributes. They are stored on the
+`Rationale:`, `Depends:`, `Status:` or `Cases:` are the requirement's attributes. They are stored on the
 requirement (`RequirementRef.attributes` on its claims) and are not extracted as claims. Other list
 items under a requirement are ordinary prose and fall under R7. A requirement with `Status: retired`
 is only checked by R8.
@@ -49,7 +50,7 @@ is only checked by R8.
 | R1 atomic | error | no SHALL/SHALL NOT/MUST in the statement; more than one; a semicolon; "and" joining two modal clauses (one finding per statement, naming every reason) |
 | R2 vague | error | a banned word in the statement: correctly, properly, efficient(ly), robust(ly), appropriate(ly), as expected, user-friendly, fast, secure(ly) |
 | R3 internals | error / warning | see below |
-| R4 provable | error | `Verify:` missing or not one of `example`, `property`, `scenario`, `budget`, `proof`; never/always/for every/for all/for each with `example` or `scenario`; a time, size or count limit (`5 ms`, `10MB`, `90%`, `at most 3`, `no more than`, `fewer than`, `up to`, ...) with a method other than `budget` |
+| R4 provable | error | `Verify:` missing or not one of `example`, `property`, `scenario`, `budget`, `proof`, `conformance`; `Verify: conformance` without a `Cases:` list, or with a file that does not exist or has no `## Cases` table; `Cases:` on any other method; never/always/for every/for all/for each with `example` or `scenario`; a time, size or count limit (`5 ms`, `10MB`, `90%`, `at most 3`, `no more than`, `fewer than`, `up to`, ...) with a method other than `budget` |
 | R5 traceable | error / warning | `Traces:` missing, naming no white-paper ID or an unknown one; `Boundary:` missing, without a B- ID or naming an unknown one; a goal `G-n` or constraint `K-n` that no (non-retired) requirement traces to, reported at the white paper line (errors). `Boundary:` with no backticked surface, and `Depends:` naming an undefined requirement (warnings) |
 | R6 said once | warning | two statements whose token sets (lower-cased, minus `the a an of to be is are shall must`) have Jaccard similarity of 0.8 or more; reported on the later one |
 | R7 normative text | error | `must`, `shall`, `never`, `always` or `required` in a paragraph, list item or quote that is not a requirement or one of its attributes. Headings, tables, code blocks and code spans are exempt |
@@ -75,7 +76,28 @@ whitepaper = "docs/whitepaper.md"   # relative to the repository
 strict = true                        # warnings fail the lint
 vague_words = ["fast", "secure"]     # optional: replaces the built-in banned words
 internal_markers = ["shard"]         # optional: added to the built-in markers
+spec = ["docs/spec/**"]              # optional: lint only the normative files matching these globs
 ```
+
+## Conformance requirements
+
+A requirement whose behaviour is a table of cases rather than one example uses `Verify: conformance`
+and names its case tables:
+
+```markdown
+**LANG-001** A scan of a repository in a supported language SHALL report every finding listed in that language's conformance cases.
+- Verify: conformance
+- Boundary: B-5 `concordance_engine::start`
+- Cases: fixtures/typescript/EXPECTED.md, fixtures/lean/EXPECTED.md
+- Traces: G-1
+```
+
+`Cases:` is a comma-separated list of repository-relative files. Each must exist and hold a `## Cases`
+heading followed by a Markdown table whose first column is `Case` (unique, non-empty names, one row at
+least, every row as wide as the header). Anything else is an R4 error on the requirement's `Cases:` line.
+The columns after `Case` belong to the proof that reads the table (see
+[requirements.md](requirements.md#case-tables)); the lint checks only the shape. A row added to
+a table is a case added, with no change to the requirement.
 
 ## Proof checks in scan
 

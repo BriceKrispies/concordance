@@ -302,6 +302,7 @@ dependencies = [
  "concordance-events",
  "concordance-graph",
  "concordance-lint",
+ "concordance-markdown",
  "concordance-server",
  "concordance-storage",
  "serde",
@@ -383,6 +384,7 @@ dependencies = [
  "concordance-core",
  "concordance-graph",
  "concordance-markdown",
+ "globset",
  "serde",
  "serde_json",
 ]
@@ -463,8 +465,10 @@ dependencies = [
  "concordance-events",
  "concordance-graph",
  "concordance-lint",
+ "concordance-markdown",
  "concordance-semantic",
  "concordance-server",
+ "serde",
  "serde_json",
  "tokio",
 ]

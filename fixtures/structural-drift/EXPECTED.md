@@ -38,3 +38,19 @@ files) but its behavioural claims about the code that does exist are correct.
   not be reported as a broken reference, since both items exist.
 - `docs/wire-format.md` must not be reported as missing. Only its `#framing` anchor is broken.
 - No `undocumented` findings for `Header`, `parse_header()` or `encode()`; all are covered by the spec.
+
+## Cases
+
+Checked by the LANG-001 conformance proof (see `docs/requirements.md`, "Case tables"). Adding a row adds a case.
+A row passes when some open finding whose title or claim text contains `Claim contains` has the given status,
+category and location. `absent` and `absent:status` mean no such finding exists; `!x` negates a cell.
+
+| Case | Requirement | Results | Claim contains | Status | Category | Location |
+|---|---|---|---|---|---|---|
+| renamed-function | LANG-001 | none | parse_headers() | violated | structural_contradiction | docs/spec.md |
+| removed-method | LANG-001 | none | Header::from_bytes() | violated |  |  |
+| outdated-signature | LANG-001 | none | pub fn encode | violated |  | src/lib.rs:19 |
+| broken-anchor | LANG-001 | none | wire-format.md#framing | violated |  |  |
+| missing-notes-file | LANG-001 | none | notes.md | violated |  |  |
+| missing-source-file | LANG-001 | none | src/codec.rs | violated |  |  |
+| violations-are-structural | LANG-001 | none |  | absent:violated | !structural_contradiction |  |

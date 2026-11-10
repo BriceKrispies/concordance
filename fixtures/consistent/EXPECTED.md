@@ -30,3 +30,16 @@ nothing should be reported as a problem.
 - The explanatory paragraphs in "Overview" (no modal words, no contract) must not produce findings.
 - The `## Example` block must not be flagged as a requirement or as a code reference that fails to resolve.
 - The `consistent` crate name in the `use consistent::RateLimiter;` line must not be treated as a broken reference.
+
+## Cases
+
+Checked by the LANG-001 conformance proof (see `docs/requirements.md`, "Case tables"). Adding a row adds a case.
+A row passes when some open finding whose title or claim text contains `Claim contains` has the given status,
+category and location. `absent` and `absent:status` mean no such finding exists; `!x` negates a cell.
+
+| Case | Requirement | Results | Claim contains | Status | Category | Location |
+|---|---|---|---|---|---|---|
+| no-violations | LANG-001 | none |  | absent:violated |  |  |
+| signature-verified | LANG-001 | none | try_acquire | verified |  |  |
+| no-unsafe-verified | LANG-001 | none | unsafe | verified |  |  |
+| behaviour-unverified | LANG-001 | none | must return `false` | unverified |  |  |
