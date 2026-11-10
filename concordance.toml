@@ -1,9 +1,14 @@
 # Concordance analyzing itself: `concordance serve` or `concordance scan` from this directory.
-spec_roots = ["docs/specifications"]
-src_roots = ["crates"]
+spec_roots = ["docs/specifications", "docs/spec"]
+src_roots = ["crates", "tests"]
 
 [authority]
-normative = ["docs/specifications/**"]
+normative = ["docs/specifications/**", "docs/spec/**"]
+descriptive = ["docs/whitepaper.md"]
+
+[lint]
+whitepaper = "docs/whitepaper.md"
+strict = true
 
 [semantic]
 enabled = false
