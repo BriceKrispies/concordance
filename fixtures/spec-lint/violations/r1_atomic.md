@@ -1,6 +1,6 @@
 # Atomic
 
-**ATOM-001** `tool build` SHALL exit with status 2 and SHALL write nothing when the manifest is missing.
+**ATOM-001** `tool build` SHALL print the path of the executable it wrote and SHALL exit with status 0.
 - Verify: scenario
 - Boundary: B-1 `tool build`
 - Traces: G-1
