@@ -162,6 +162,26 @@ pub enum FactKind {
     ErrorReturn,
     /// Any other macro invocation (`detail` = macro path).
     MacroInvocation,
+    /// A declaration whose proof or body is incomplete. Lean: `sorry`.
+    Unproven,
+}
+
+impl FactKind {
+    /// Stable snake_case name (the serialized form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FactKind::PanicSite => "panic_site",
+            FactKind::UnsafeCode => "unsafe_code",
+            FactKind::LiteralComparison => "literal_comparison",
+            FactKind::ConstValue => "const_value",
+            FactKind::Clamp => "clamp",
+            FactKind::EnvRead => "env_read",
+            FactKind::FeatureGate => "feature_gate",
+            FactKind::ErrorReturn => "error_return",
+            FactKind::MacroInvocation => "macro_invocation",
+            FactKind::Unproven => "unproven",
+        }
+    }
 }
 
 /// A call expression found in a body. Not resolved by the indexer: resolution happens

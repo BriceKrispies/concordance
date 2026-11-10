@@ -53,6 +53,14 @@ describe("Mixer", () => {
 });
 ```
 
+Lean theorems (`theorem` / `lemma`) are tests when they carry `Verifies:` in their `/-- -/` doc
+comment or in the `--` comment lines directly above:
+
+```lean
+/-- Verifies: VOL-001 -/
+theorem clamp_le_max (n : Nat) : clampLevel n ≤ maxLevel := by ...
+```
+
 ## Test results
 
 Concordance does not run the analysed repository's tests. Point it at their output:
@@ -65,7 +73,10 @@ concordance serve --config concordance.toml --test-results C:/ci/tests.txt
 or `test_results = ["C:/ci/tests.txt"]` in the config file. Accepted, mixed freely: libtest text,
 libtest JSON lines (`-Z unstable-options --format json`), cargo-nextest output, JUnit XML
 (`vitest run --reporter=junit --outputFile=...`, most CI reporters) and vitest/jest text output
-(`✓ file > describe > case`).
+(`✓ file > describe > case`). For Lean, a `lake build` log (`lake build 2>&1 | tee build.log`): a tagged
+theorem passes when its module built and no error or `declaration uses 'sorry'` warning lies inside
+the theorem's lines; it fails when one does, or when its module failed to build; a module the log
+does not mention gives no result.
 Result names are matched to test functions by their module path. The file is watched, so writing
 a new run re-derives every requirement finding.
 

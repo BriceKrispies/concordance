@@ -17,7 +17,7 @@
 //! compares the output file's modification time with the analyzed sources: results that
 //! predate a source change are reported as outdated, never as current.
 
-use crate::{ContentHash, RepoPath, Timestamp};
+use crate::{ContentHash, RepoPath, SourceRange, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -59,6 +59,16 @@ impl TestRun {
     pub fn is_outdated(&self) -> bool {
         self.newer_sources > 0
     }
+}
+
+/// An indexed test symbol, handed to a language plugin so it can turn a build log
+/// (which names modules, files and lines rather than tests) into per-test outcomes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TestSite {
+    /// The name a result must carry to apply to this test: the symbol path joined by `::`.
+    pub name: String,
+    pub file: RepoPath,
+    pub range: SourceRange,
 }
 
 /// Parse any mix of the accepted formats. Unrecognized lines are ignored.

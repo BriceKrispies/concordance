@@ -210,6 +210,7 @@ pub fn languages() -> &'static concordance_core::lang::Languages {
         concordance_core::lang::Languages::new(vec![
             std::sync::Arc::new(concordance_rust::RustPlugin),
             std::sync::Arc::new(concordance_typescript::TypeScriptPlugin),
+            std::sync::Arc::new(concordance_lean::LeanPlugin),
         ])
     })
 }

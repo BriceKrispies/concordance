@@ -14,6 +14,7 @@ concordance-core = { path = "crates/concordance-core" }
 concordance-markdown = { path = "crates/concordance-markdown" }
 concordance-rust = { path = "crates/concordance-rust" }
 concordance-typescript = { path = "crates/concordance-typescript" }
+concordance-lean = { path = "crates/concordance-lean" }
 concordance-graph = { path = "crates/concordance-graph" }
 concordance-storage = { path = "crates/concordance-storage" }
 concordance-reconcile = { path = "crates/concordance-reconcile" }

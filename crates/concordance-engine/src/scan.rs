@@ -51,15 +51,51 @@ impl Engine {
         let paths = self.shared.config.test_results.clone();
         let root = self.shared.config.repo_root.clone();
         let mut runs: Vec<TestRun> = Vec::new();
+        // Indexed test symbols per language, for plugins that read build logs.
+        let sites: Vec<(String, testrun::TestSite)> = self
+            .shared
+            .read(|m| {
+                m.symbols
+                    .values()
+                    .filter(|s| s.is_test)
+                    .filter_map(|s| {
+                        let f = m.files.get(&s.file)?;
+                        Some((
+                            f.language.clone(),
+                            testrun::TestSite {
+                                name: s.path.join("::"),
+                                file: f.path.clone(),
+                                range: s.range.clone(),
+                            },
+                        ))
+                    })
+                    .collect()
+            })
+            .0;
         for p in &paths {
             let (Some(modified), Ok(text)) = (mtime_ms(p), std::fs::read_to_string(p)) else {
                 continue; // not produced yet: no evidence, nothing to report
             };
+            let mut results = testrun::parse(&text);
+            for plugin in crate::languages().iter() {
+                let mine: Vec<testrun::TestSite> = sites
+                    .iter()
+                    .filter(|(l, _)| l == plugin.id())
+                    .map(|(_, s)| s.clone())
+                    .collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                for (name, o) in plugin.build_log_outcomes(&text, &mine) {
+                    let e = results.entry(name).or_insert(o);
+                    *e = (*e).max(o);
+                }
+            }
             runs.push(TestRun {
                 path: p.display().to_string(),
                 modified: Timestamp(modified),
                 content_hash: ContentHash::of_str(&text),
-                results: testrun::parse(&text),
+                results,
                 newer_sources: 0,
                 newest_source: None,
             });
