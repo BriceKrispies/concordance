@@ -41,6 +41,15 @@ fn repo(tag: &str, spec: &str, gate: &str) -> PathBuf {
     let dir = temp_dir(tag).join("repo");
     copy_dir(&repo_root().join("fixtures/requirements"), &dir);
     std::fs::write(dir.join("docs/spec.md"), spec).unwrap();
+    // The fixture's second test verifies an unknown requirement, which is a proven finding of
+    // its own and not about milestones: drop it.
+    let lib = dir.join("src/lib.rs");
+    let text = std::fs::read_to_string(&lib).unwrap().replace("\r\n", "\n");
+    let cut = text
+        .find("    /// Verifies: LEX-404")
+        .expect("LEX-404 test");
+    let kept = text[..cut].trim_end_matches('\n');
+    std::fs::write(&lib, format!("{kept}\n}}\n")).unwrap();
     std::fs::write(
         dir.join("concordance.toml"),
         format!(
