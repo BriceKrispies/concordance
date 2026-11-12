@@ -48,6 +48,11 @@ fn repo(tag: &str, spec: &str, gate: &str) -> PathBuf {
         ),
     )
     .unwrap();
+    // The recorded run must be newer than every source file, or scan reports it stale.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let results = dir.join("results/failed.txt");
+    let text = std::fs::read_to_string(&results).unwrap();
+    std::fs::write(&results, text).unwrap();
     dir
 }
 
