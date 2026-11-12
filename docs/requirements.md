@@ -61,7 +61,7 @@ The scan JSON carries `counts.planned`, `findings[].status = "planned"` and `fin
 
 ## Case tables
 
-A requirement with `Verify: conformance` states a capability once and lists the detail in case tables:
+A requirement with `Verify: conformance` (or `Verify: proof` that links its table with an optional `Cases:`) states a capability once and lists the detail in case tables:
 the `## Cases` section of each file named by its `Cases:` attribute (see [spec-lint.md](spec-lint.md)).
 Concordance's own umbrella requirements (`docs/spec`) work this way. The prose above the table stays for
 people; the table is what is checked.

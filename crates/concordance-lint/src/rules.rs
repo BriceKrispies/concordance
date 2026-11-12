@@ -532,24 +532,29 @@ fn r4_milestone(r: &Req, sink: &mut Sink) {
     }
 }
 
-/// `Verify: conformance` needs `Cases:` files, each holding a `## Cases` table; `Cases:` is
-/// meaningless for any other method.
+/// `Verify: conformance` needs `Cases:` files, each holding a `## Cases` table; `Verify: proof`
+/// may list them (optional); `Cases:` is meaningless for any other method.
 fn r4_cases(r: &Req, method: &str, input: &LintInput<'_>, sink: &mut Sink) {
     let path = &r.file.path;
     let id = &r.block.id;
     let cases = r.block.attribute("Cases");
-    if method != "conformance" {
+    if !matches!(method, "conformance" | "proof") {
         if let Some(c) = cases {
             sink.err(
                 "R4",
                 path,
                 c.line,
-                format!("{id}: `Cases:` is only for `Verify: conformance`, not {method}"),
+                format!(
+                    "{id}: `Cases:` is only for `Verify: conformance` or `Verify: proof`, not {method}"
+                ),
             );
         }
         return;
     }
     let Some(c) = cases else {
+        if method == "proof" {
+            return;
+        }
         sink.err(
             "R4",
             path,
@@ -927,6 +932,100 @@ mod tests {
         assert_eq!(f.len(), 1, "{f:?}");
         assert_eq!(f[0].0, 4);
         assert!(f[0].1.contains("greater than"), "{f:?}");
+    }
+
+    /// R4 findings for a requirement with `Verify: {verify}` and a `Cases:` line, with the case
+    /// files resolved under `root`.
+    fn r4_cases_of(verify: &str, cases: &str, root: Option<&std::path::Path>) -> Vec<String> {
+        let text = format!(
+            "**CLI-004** `tool build` SHALL exit with status 2.
+- Verify: {verify}
+{cases}"
+        );
+        let specs = [SpecFile {
+            path: "docs/spec/cli.md".into(),
+            text,
+        }];
+        let settings = settings(false);
+        let input = LintInput {
+            specs: &specs,
+            index: None,
+            whitepaper: ("docs/whitepaper.md", None),
+            model: None,
+            settings: &settings,
+            repo_root: root,
+        };
+        run(&input)
+            .into_iter()
+            .filter(|f| f.rule == "R4")
+            .map(|f| f.message)
+            .collect()
+    }
+
+    #[test]
+    fn cases_are_accepted_on_a_proof_and_checked_like_conformance() {
+        let dir = std::env::temp_dir().join(format!("concordance-r4-proof-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("good.md"),
+            "## Cases
+
+| Case | Theorem |
+|---|---|
+| a | t1 |
+",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("bad.md"),
+            "no table here
+",
+        )
+        .unwrap();
+        assert!(r4_cases_of(
+            "proof",
+            "- Cases: good.md
+",
+            Some(&dir)
+        )
+        .is_empty());
+        // Optional on a proof.
+        assert!(r4_cases_of("proof", "", Some(&dir)).is_empty());
+        let missing = r4_cases_of(
+            "proof",
+            "- Cases: nope.md
+",
+            Some(&dir),
+        );
+        assert!(missing[0].contains("does not exist"), "{missing:?}");
+        let bad = r4_cases_of(
+            "proof",
+            "- Cases: bad.md
+",
+            Some(&dir),
+        );
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        // Still required for conformance.
+        let req = r4_cases_of("conformance", "", Some(&dir));
+        assert!(req[0].contains("needs a `Cases:`"), "{req:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cases_are_still_rejected_on_other_methods() {
+        for method in ["example", "scenario", "property", "budget"] {
+            let f = r4_cases_of(
+                method,
+                "- Cases: good.md
+",
+                None,
+            );
+            assert_eq!(f.len(), 1, "{method}: {f:?}");
+            assert!(
+                f[0].contains("only for `Verify: conformance` or `Verify: proof`"),
+                "{f:?}"
+            );
+        }
     }
 
     #[test]
