@@ -34,6 +34,7 @@ pub struct StatusCounts {
     pub verified: u32,
     pub violated: u32,
     pub unverified: u32,
+    pub planned: u32,
     pub stale: u32,
     pub ambiguous: u32,
 }
@@ -44,6 +45,7 @@ impl StatusCounts {
             FindingStatus::Verified => self.verified += 1,
             FindingStatus::Violated => self.violated += 1,
             FindingStatus::Unverified => self.unverified += 1,
+            FindingStatus::Planned => self.planned += 1,
             FindingStatus::Stale => self.stale += 1,
             FindingStatus::Ambiguous => self.ambiguous += 1,
             FindingStatus::Undocumented => {}

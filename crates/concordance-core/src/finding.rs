@@ -26,14 +26,17 @@ pub enum FindingStatus {
     Ambiguous,
     Undocumented,
     Unverified,
+    /// The requirement's milestone is not started (`[gate] started_milestones`).
+    Planned,
     Verified,
 }
 
 impl FindingStatus {
-    pub const ALL: [FindingStatus; 6] = [
+    pub const ALL: [FindingStatus; 7] = [
         FindingStatus::Verified,
         FindingStatus::Violated,
         FindingStatus::Unverified,
+        FindingStatus::Planned,
         FindingStatus::Stale,
         FindingStatus::Ambiguous,
         FindingStatus::Undocumented,
@@ -43,6 +46,7 @@ impl FindingStatus {
             FindingStatus::Verified => "verified",
             FindingStatus::Violated => "violated",
             FindingStatus::Unverified => "unverified",
+            FindingStatus::Planned => "planned",
             FindingStatus::Stale => "stale",
             FindingStatus::Ambiguous => "ambiguous",
             FindingStatus::Undocumented => "undocumented",
@@ -267,6 +271,8 @@ pub struct Counts {
     pub verified: u32,
     pub violated: u32,
     pub unverified: u32,
+    #[serde(default)]
+    pub planned: u32,
     pub stale: u32,
     pub ambiguous: u32,
     pub undocumented: u32,

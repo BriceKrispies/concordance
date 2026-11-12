@@ -1,6 +1,6 @@
 // Formatting helpers and human-readable vocabularies.
 
-export const STATUSES = ['violated', 'stale', 'ambiguous', 'unverified', 'verified', 'undocumented'];
+export const STATUSES = ['violated', 'stale', 'ambiguous', 'unverified', 'planned', 'verified', 'undocumented'];
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 
 export function titleCase(snake) {
@@ -35,6 +35,7 @@ export const STATUS_HELP = {
   stale: 'Evidence is out of date',
   ambiguous: 'Claim or mapping is unclear',
   unverified: 'No evidence either way',
+  planned: 'Milestone not started yet',
   verified: 'Evidence supports the claim',
   undocumented: 'Public code without a documented contract',
 };

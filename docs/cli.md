@@ -15,7 +15,8 @@ common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
 Roots may be absolute or relative to the repository. Without `--config`, `concordance.toml` in
 the repository is used if it exists. Command-line values override the file; a repeated
 `--spec-root`/`--src-root` replaces the file's whole list. See `examples/concordance.toml` for the
-schema (it is intentionally small: roots, excludes, state dir, authority globs, semantic, server).
+schema (it is intentionally small: roots, excludes, state dir, authority globs, semantic, server). `[gate] started_milestones = [1, 2]` marks the milestones that
+count; `[lint] require_milestone = true` requires `Milestone:` on every requirement.
 
 ## Exit codes
 
@@ -26,8 +27,9 @@ schema (it is intentionally small: roots, excludes, state dir, authority globs, 
 | 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`). |
 | 3 | Runtime error (state database, I/O, cannot bind the port). |
 
-`unverified`, `ambiguous`, `stale` and `undocumented` findings never fail the gate: they are not
-violations. Missing Claude is never treated as successful semantic verification. The report's
+`unverified`, `planned`, `ambiguous`, `stale` and `undocumented` findings never fail the gate: they are not
+violations. With `[gate] started_milestones`, findings of requirements whose `Milestone:` is not started are
+left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requirements.md](requirements.md#milestones). Missing Claude is never treated as successful semantic verification. The report's
 `semantic.coverage` field states exactly what was and was not assessed.
 
 ## Output
@@ -35,7 +37,7 @@ violations. Missing Claude is never treated as successful semantic verification.
 - `scan` (default) prints a human summary on stdout and progress on stderr.
 - `scan --json` prints one JSON report: `tool`, `version`, `repository`, `revision`, `semantic`,
   `counts`, `gate`, and `findings[]`. Each finding includes its `claim_refs` and `symbol_refs`, with
-  exact ranges for downstream tooling.
+  exact ranges for downstream tooling, and its requirement's `milestone` when it has one.
 - `scan --jsonl` prints every event envelope as one line, then the report as the last line.
 - `watch` streams events until Ctrl+C; with `--jsonl` the stream is machine-readable.
 - `report` reads persisted state without scanning or probing Claude.

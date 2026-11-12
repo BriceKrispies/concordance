@@ -1,5 +1,6 @@
 //! Headless report: machine-readable JSON and human-readable text from one model.
 
+use concordance_core::config::GateConfig;
 use concordance_core::finding::{Counts, Finding, FindingCategory, FindingStatus};
 use concordance_core::{RepoPath, Revision, SourceRange};
 use concordance_engine::SemanticStatus;
@@ -40,6 +41,9 @@ pub struct ReportFinding {
     pub finding: Finding,
     pub claim_refs: Vec<ClaimRef>,
     pub symbol_refs: Vec<SymbolRef>,
+    /// `Milestone:` of the requirement the finding is about, when it has a valid one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub milestone: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -70,6 +74,17 @@ pub struct Gate {
     pub failed: bool,
     pub proven_violations: usize,
     pub suspected_violations: usize,
+    /// Open findings left out of the gate because their milestone is not started.
+    pub ignored_unstarted: usize,
+}
+
+/// The valid `Milestone:` of the requirement a finding's first claim belongs to.
+fn milestone_of(m: &Model, f: &Finding) -> Option<u32> {
+    f.claims
+        .iter()
+        .filter_map(|c| m.claims.get(c))
+        .find_map(|c| c.requirement.as_ref())
+        .and_then(|r| r.attributes.milestone_number())
 }
 
 pub fn build(
@@ -78,6 +93,7 @@ pub fn build(
     semantic: &SemanticStatus,
     fail_on: FailOn,
     include_resolved: bool,
+    gate: &GateConfig,
 ) -> Report {
     let mut findings: Vec<&Finding> = m
         .findings
@@ -95,12 +111,18 @@ pub fn build(
             .values()
             .filter(|f| {
                 f.is_open()
+                    && gate.is_started(milestone_of(m, f))
                     && f.status == FindingStatus::Violated
                     && cat.is_none_or(|c| f.category == c)
             })
             .count()
     };
     // Deterministic contradictions: structural facts and failing tests.
+    let ignored_unstarted = m
+        .findings
+        .values()
+        .filter(|f| f.is_open() && !gate.is_started(milestone_of(m, f)))
+        .count();
     let proven = open_violated(Some(FindingCategory::StructuralContradiction))
         + open_violated(Some(FindingCategory::TestFailure));
     let suspected = open_violated(Some(FindingCategory::SuspectedSemanticContradiction));
@@ -135,6 +157,7 @@ pub fn build(
             failed,
             proven_violations: proven,
             suspected_violations: suspected,
+            ignored_unstarted,
         },
         findings: findings
             .into_iter()
@@ -161,6 +184,7 @@ pub fn build(
                         range: s.range.clone(),
                     })
                     .collect(),
+                milestone: milestone_of(m, f),
                 finding: f.clone(),
             })
             .collect(),
@@ -180,7 +204,7 @@ pub fn human(r: &Report, verbose: bool) -> String {
         "{} documents, {} claims ({} obligations), {} source files, {} symbols, {} relationships",
         c.documents, c.claims, c.obligation_claims, c.source_files, c.symbols, c.edges
     );
-    let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.verified, c.undocumented);
+    let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   planned {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.planned, c.verified, c.undocumented);
     let _ = writeln!(out, "\n{}\n", r.semantic.coverage);
     let order = [
         FindingStatus::Violated,
@@ -188,6 +212,7 @@ pub fn human(r: &Report, verbose: bool) -> String {
         FindingStatus::Ambiguous,
         FindingStatus::Undocumented,
         FindingStatus::Unverified,
+        FindingStatus::Planned,
         FindingStatus::Verified,
     ];
     for status in order {
@@ -253,6 +278,13 @@ pub fn human(r: &Report, verbose: bool) -> String {
             r.gate.proven_violations,
             r.gate.suspected_violations
         );
+        if r.gate.ignored_unstarted > 0 {
+            let _ = writeln!(
+                out,
+                "  {} finding(s) of unstarted milestones ignored",
+                r.gate.ignored_unstarted
+            );
+        }
     }
     out
 }

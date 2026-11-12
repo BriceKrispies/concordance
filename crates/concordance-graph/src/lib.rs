@@ -382,6 +382,7 @@ impl Model {
                 FindingStatus::Verified => c.verified += 1,
                 FindingStatus::Violated => c.violated += 1,
                 FindingStatus::Unverified => c.unverified += 1,
+                FindingStatus::Planned => c.planned += 1,
                 FindingStatus::Stale => c.stale += 1,
                 FindingStatus::Ambiguous => c.ambiguous += 1,
                 FindingStatus::Undocumented => c.undocumented += 1,

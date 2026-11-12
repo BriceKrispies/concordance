@@ -27,7 +27,7 @@ one obligation, test results are recorded but never verify or violate a claim on
 finding says the requirement should be split.
 
 A bold-ID requirement may carry attribute bullets directly after it (`Verify:`, `Boundary:`,
-`Traces:`, `Rationale:`, `Depends:`, `Status:`, `Cases:`). They are stored on the requirement, not extracted as
+`Traces:`, `Rationale:`, `Depends:`, `Status:`, `Cases:`, `Milestone:`, `Seam:`). They are stored on the requirement, not extracted as
 claims, and `concordance lint` checks them: see [spec-lint.md](spec-lint.md).
 
 An ID is an upper-case prefix, optional upper-case/digit segments and a number with an optional
@@ -35,9 +35,33 @@ dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`. IDs are recognised on
 defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
 (`PROJ-2147`) are not requirements.
 
+## Milestones
+
+`Milestone: N` names the milestone at which a requirement is first verified; `Seam: M` (with `M <= N`)
+the milestone by which its data shape or contract must exist. To gate only the requirements of started
+milestones, list them in `concordance.toml`:
+
+```toml
+[gate]
+started_milestones = [1, 2]
+```
+
+With `started_milestones` set:
+
+- a requirement whose `Milestone:` is not listed is reported as `planned` instead of `unverified`
+  (a requirement with evidence keeps its `verified`, `violated`, `stale` or `ambiguous` status);
+- `scan --fail-on` and `report --fail-on` ignore every finding of such a requirement, including a
+  failing test; the gate counts them as `ignored_unstarted`;
+- a requirement with no `Milestone:` (or one that is not a positive integer) counts as started;
+- without `started_milestones`, nothing is planned.
+
+The scan JSON carries `counts.planned`, `findings[].status = "planned"` and `findings[].milestone`
+(the requirement's milestone, when it has a valid one). The requirement's claims carry the raw
+`milestone` and `seam` under `requirement.attributes`.
+
 ## Case tables
 
-A requirement with `Verify: conformance` states a capability once and lists the detail in case tables:
+A requirement with `Verify: conformance` (or `Verify: proof` that links its table with an optional `Cases:`) states a capability once and lists the detail in case tables:
 the `## Cases` section of each file named by its `Cases:` attribute (see [spec-lint.md](spec-lint.md)).
 Concordance's own umbrella requirements (`docs/spec`) work this way. The prose above the table stays for
 people; the table is what is checked.

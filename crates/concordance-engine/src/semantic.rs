@@ -583,6 +583,7 @@ impl SemanticRunner {
                 changed_files: vec![],
                 semantic_enabled: true,
                 languages: crate::languages().clone(),
+                gate: shared.config.gate.clone(),
             });
             let ev = to_evidence(&claim, analysis, mode, result, &pending.ctx);
             let mut events = vec![Event::EvidenceCreated {
