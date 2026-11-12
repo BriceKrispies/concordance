@@ -30,6 +30,9 @@ claude_path = "claude"
 context = "explore"                      # the model searches the repo read-only; "excerpts" = linked symbols only
 max_turns = 20                           # explore: tool-use turns per analysis
 
+[gate]
+# started_milestones = [1, 2]            # requirements of other milestones scan as `planned`; omit to gate all
+
 [server]
 host = "127.0.0.1"
 port = 4173

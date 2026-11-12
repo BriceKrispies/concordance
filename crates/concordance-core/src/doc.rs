@@ -185,10 +185,12 @@ pub struct RequirementAttributes {
     pub depends: Option<String>,
     pub status: Option<String>,
     pub cases: Option<String>,
+    pub milestone: Option<String>,
+    pub seam: Option<String>,
 }
 
 impl RequirementAttributes {
-    pub const NAMES: [&'static str; 7] = [
+    pub const NAMES: [&'static str; 9] = [
         "Verify",
         "Boundary",
         "Traces",
@@ -196,6 +198,8 @@ impl RequirementAttributes {
         "Depends",
         "Status",
         "Cases",
+        "Milestone",
+        "Seam",
     ];
 
     pub fn is_empty(&self) -> bool {
@@ -206,6 +210,18 @@ impl RequirementAttributes {
             && self.depends.is_none()
             && self.status.is_none()
             && self.cases.is_none()
+            && self.milestone.is_none()
+            && self.seam.is_none()
+    }
+
+    /// The milestone as a positive integer; `None` when absent or not one.
+    pub fn milestone_number(&self) -> Option<u32> {
+        parse_positive(self.milestone.as_deref()?)
+    }
+
+    /// The seam as a positive integer; `None` when absent or not one.
+    pub fn seam_number(&self) -> Option<u32> {
+        parse_positive(self.seam.as_deref()?)
     }
 
     /// The value of attribute `name` (one of [`Self::NAMES`]).
@@ -218,6 +234,8 @@ impl RequirementAttributes {
             "Depends" => self.depends.as_deref(),
             "Status" => self.status.as_deref(),
             "Cases" => self.cases.as_deref(),
+            "Milestone" => self.milestone.as_deref(),
+            "Seam" => self.seam.as_deref(),
             _ => None,
         }
     }
@@ -232,6 +250,8 @@ impl RequirementAttributes {
             "Depends" => &mut self.depends,
             "Status" => &mut self.status,
             "Cases" => &mut self.cases,
+            "Milestone" => &mut self.milestone,
+            "Seam" => &mut self.seam,
             _ => return false,
         };
         if slot.is_none() {
@@ -239,6 +259,16 @@ impl RequirementAttributes {
         }
         true
     }
+}
+
+/// A positive decimal integer (`3`, not `0`, `-1`, `3.5` or `three`); surrounding space and
+/// backticks are ignored.
+pub fn parse_positive(s: &str) -> Option<u32> {
+    let t = s.trim().trim_matches('`').trim();
+    if t.is_empty() || !t.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    t.parse::<u32>().ok().filter(|n| *n > 0)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

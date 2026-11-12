@@ -135,7 +135,7 @@ pub fn claim_finding(
     let sem_verdict = semantic.and_then(verdict);
     let ch_verdict = challenge.and_then(verdict);
 
-    let d = if let Some(top) = strong_contra.iter().max_by_key(|e| e.strength) {
+    let mut d = if let Some(top) = strong_contra.iter().max_by_key(|e| e.strength) {
         Decision {
             status: FindingStatus::Violated,
             category: FindingCategory::StructuralContradiction,
@@ -450,6 +450,18 @@ pub fn claim_finding(
         why_it_matters(claim, doc)
     ));
 
+    // A requirement of a milestone that is not started is planned, not unverified.
+    let milestone = claim
+        .requirement
+        .as_ref()
+        .and_then(|r| r.attributes.milestone_number());
+    if d.status == FindingStatus::Unverified && !ctx.gate.is_started(milestone) {
+        d.status = FindingStatus::Planned;
+        d.headline = format!(
+            "Planned: milestone {} is not started, so this requirement is not gated yet.",
+            milestone.unwrap_or_default()
+        );
+    }
     let severity = severity_for(d.status, d.category, claim.authority);
     let (crate_name, module) = locate(model, &symbols);
     let mut targets = vec![claim.range.clone()];
@@ -568,6 +580,7 @@ fn title_for(status: FindingStatus, category: FindingCategory, claim: &Claim) ->
         (FindingStatus::Stale, _) => "Evidence stale",
         (FindingStatus::Ambiguous, _) => "Ambiguous",
         (FindingStatus::Verified, _) => "Verified",
+        (FindingStatus::Planned, _) => "Planned",
         (FindingStatus::Unverified, FindingCategory::SuspectedSemanticContradiction) => {
             "Possible contradiction"
         }
@@ -624,6 +637,7 @@ pub fn proposals_for(
             false,
             &targets,
         )],
+        FindingStatus::Planned => vec![p(NoActionNeeded, "The requirement's milestone is not started; add it to `[gate] started_milestones` when work begins.", false, &[].to_vec())],
         FindingStatus::Undocumented => vec![p(EstablishSpecification, "Specify the intended behavior so it can be checked.", true, &targets)],
         FindingStatus::Verified => vec![p(NoActionNeeded, "Evidence supports the claim.", false, &[].to_vec())],
     }

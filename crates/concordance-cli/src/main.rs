@@ -321,8 +321,8 @@ async fn serve(a: ServeArgs) -> ExitCode {
             match sub.next().await {
                 Next::Event(env) => match &env.event {
                     Event::ScanCompleted { counts, changed_files, revision, .. } => eprintln!(
-                        "revision {}: {} file(s) changed — {} violated, {} stale, {} ambiguous, {} unverified, {} verified, {} undocumented",
-                        revision.0, changed_files, counts.violated, counts.stale, counts.ambiguous, counts.unverified, counts.verified, counts.undocumented
+                        "revision {}: {} file(s) changed — {} violated, {} stale, {} ambiguous, {} unverified, {} planned, {} verified, {} undocumented",
+                        revision.0, changed_files, counts.violated, counts.stale, counts.ambiguous, counts.unverified, counts.planned, counts.verified, counts.undocumented
                     ),
                     Event::SystemWarning { message } => eprintln!("warning: {message}"),
                     Event::SystemError { message } => eprintln!("error: {message}"),
@@ -348,6 +348,7 @@ async fn scan(a: ScanArgs) -> ExitCode {
         Err(code) => return code,
     };
     let repo = config.repo_root.display().to_string();
+    let gate = config.gate.clone();
     let (engine, task, bus) = match start_engine(config, false).await {
         Ok(v) => v,
         Err(c) => return c,
@@ -401,9 +402,16 @@ async fn scan(a: ScanArgs) -> ExitCode {
     });
     engine.wait_idle().await;
     let status = engine.shared.status();
-    let (rep, _) = engine
-        .shared
-        .read(|m| report::build(m, &repo, &status.semantic, a.fail_on, a.include_resolved));
+    let (rep, _) = engine.shared.read(|m| {
+        report::build(
+            m,
+            &repo,
+            &status.semantic,
+            a.fail_on,
+            a.include_resolved,
+            &gate,
+        )
+    });
     engine.shutdown();
     bus.close();
     let _ = task.await;
@@ -568,6 +576,7 @@ fn report_cmd(a: ReportArgs) -> ExitCode {
         &semantic,
         a.fail_on,
         a.include_resolved,
+        &config.gate,
     );
     match a.format {
         Format::Json => println!("{}", serde_json::to_string(&rep).unwrap_or_default()),

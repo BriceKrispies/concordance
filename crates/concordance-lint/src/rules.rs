@@ -153,6 +153,9 @@ pub fn run(input: &LintInput<'_>) -> Vec<LintFinding> {
         r2_vague(r, input, &mut sink);
         r3_internals(r, input, &mut sink);
         r4_provable(r, input, &mut sink);
+        if input.settings.require_milestone {
+            r4_milestone(r, &mut sink);
+        }
         r5_traceable(
             r,
             wp_text.is_some(),
@@ -475,6 +478,60 @@ fn r4_provable(r: &Req, input: &LintInput<'_>, sink: &mut Sink) {
     }
 }
 
+/// With `[lint] require_milestone`: `Milestone:` is present and a positive integer; `Seam:`, when
+/// present, is a positive integer no greater than the milestone.
+fn r4_milestone(r: &Req, sink: &mut Sink) {
+    use concordance_core::doc::parse_positive;
+    let path = &r.file.path;
+    let id = &r.block.id;
+    let milestone = match r.block.attribute("Milestone") {
+        None => {
+            sink.err(
+                "R4",
+                path,
+                r.block.line,
+                format!("{id}: missing `Milestone:` (a positive integer)"),
+            );
+            None
+        }
+        Some(a) => {
+            let n = parse_positive(&a.value);
+            if n.is_none() {
+                sink.err(
+                    "R4",
+                    path,
+                    a.line,
+                    format!("{id}: `Milestone: {}` is not a positive integer", a.value),
+                );
+            }
+            n
+        }
+    };
+    if let Some(a) = r.block.attribute("Seam") {
+        match parse_positive(&a.value) {
+            None => sink.err(
+                "R4",
+                path,
+                a.line,
+                format!("{id}: `Seam: {}` is not a positive integer", a.value),
+            ),
+            Some(seam) => {
+                if milestone.is_some_and(|m| seam > m) {
+                    sink.err(
+                        "R4",
+                        path,
+                        a.line,
+                        format!(
+                            "{id}: `Seam: {seam}` is greater than `Milestone: {}`",
+                            milestone.unwrap_or_default()
+                        ),
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// `Verify: conformance` needs `Cases:` files, each holding a `## Cases` table; `Cases:` is
 /// meaningless for any other method.
 fn r4_cases(r: &Req, method: &str, input: &LintInput<'_>, sink: &mut Sink) {
@@ -787,5 +844,94 @@ fn r8_ids<'a>(
                 index.path
             ),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use concordance_core::config::LintConfig;
+
+    fn settings(require_milestone: bool) -> LintConfig {
+        LintConfig {
+            whitepaper: "docs/whitepaper.md".into(),
+            strict: false,
+            require_milestone,
+            vague_words: None,
+            internal_markers: Vec::new(),
+            spec: Vec::new(),
+        }
+    }
+
+    /// The `(line, message)` of every R4 finding for a one-requirement spec whose attributes
+    /// are `attrs`.
+    fn r4(require_milestone: bool, attrs: &str) -> Vec<(u32, String)> {
+        let text = format!(
+            "**CLI-004** `tool build` SHALL exit with status 2.\n- Verify: scenario\n{attrs}"
+        );
+        let specs = [SpecFile {
+            path: "docs/spec/cli.md".into(),
+            text,
+        }];
+        let settings = settings(require_milestone);
+        let input = LintInput {
+            specs: &specs,
+            index: None,
+            whitepaper: ("docs/whitepaper.md", None),
+            model: None,
+            settings: &settings,
+            repo_root: None,
+        };
+        run(&input)
+            .into_iter()
+            .filter(|f| f.rule == "R4")
+            .map(|f| (f.line, f.message))
+            .collect()
+    }
+
+    #[test]
+    fn a_valid_milestone_and_seam_pass() {
+        assert!(r4(true, "- Milestone: 3\n- Seam: 1\n").is_empty());
+        assert!(r4(true, "- Milestone: 3\n- Seam: 3\n").is_empty());
+    }
+
+    #[test]
+    fn a_missing_milestone_is_an_error_on_the_requirement() {
+        let f = r4(true, "");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].0, 1);
+        assert!(f[0].1.contains("missing `Milestone:`"), "{f:?}");
+    }
+
+    #[test]
+    fn a_milestone_that_is_not_a_positive_integer_is_an_error() {
+        for bad in ["two", "0", "-1", "2.5"] {
+            let f = r4(true, &format!("- Milestone: {bad}\n"));
+            assert_eq!(f.len(), 1, "{bad}: {f:?}");
+            assert_eq!(f[0].0, 3, "{bad}");
+            assert!(f[0].1.contains("not a positive integer"), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn a_seam_that_is_not_a_positive_integer_is_an_error() {
+        let f = r4(true, "- Milestone: 3\n- Seam: zero\n");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].0, 4);
+        assert!(f[0].1.contains("`Seam: zero`"), "{f:?}");
+    }
+
+    #[test]
+    fn a_seam_greater_than_the_milestone_is_an_error() {
+        let f = r4(true, "- Milestone: 2\n- Seam: 3\n");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].0, 4);
+        assert!(f[0].1.contains("greater than"), "{f:?}");
+    }
+
+    #[test]
+    fn nothing_is_checked_without_the_option() {
+        assert!(r4(false, "").is_empty());
+        assert!(r4(false, "- Milestone: x\n- Seam: 9\n").is_empty());
     }
 }

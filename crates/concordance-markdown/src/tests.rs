@@ -230,3 +230,27 @@ fn dotted_type_paths_and_throw_constraints_are_language_neutral() {
         "throw and panic map to the same failure-site check: {forms:?}"
     );
 }
+
+#[test]
+fn milestone_and_seam_are_attributes_not_claims() {
+    let text = "# Spec\n\n**CLI-004** `tool build` SHALL exit with status 2.\n- Verify: scenario\n- Milestone: 3\n- Seam: 1\n";
+    let s = structure(text);
+    let attrs = s.requirements[0].attribute_set();
+    assert_eq!(attrs.milestone.as_deref(), Some("3"));
+    assert_eq!(attrs.seam.as_deref(), Some("1"));
+    assert_eq!(
+        (attrs.milestone_number(), attrs.seam_number()),
+        (Some(3), Some(1))
+    );
+    assert!(s.loose.iter().all(|l| !l.text.contains("Milestone")));
+    let idx = index("specs/cli.md", text);
+    let claims: Vec<_> = idx.claims.iter().map(|c| c.text.as_str()).collect();
+    assert!(
+        claims
+            .iter()
+            .all(|t| !t.contains("Milestone") && !t.contains("Seam")),
+        "{claims:?}"
+    );
+    let r = idx.claims[0].requirement.as_ref().unwrap();
+    assert_eq!(r.attributes.milestone.as_deref(), Some("3"));
+}

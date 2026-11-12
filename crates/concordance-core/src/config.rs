@@ -27,10 +27,14 @@
 //!
 //! [lint]                          # `concordance lint` (see docs/spec-lint.md)
 //! whitepaper = "docs/whitepaper.md"
+//! require_milestone = false        # every requirement needs a valid Milestone:/Seam:
 //! strict = false                   # warnings fail the lint
 //! spec = ["docs/spec/**"]           # lint only these normative files (default: all)
 //! vague_words = ["fast"]           # replaces the built-in banned-word list
 //! internal_markers = ["shard"]     # added to the built-in internal-detail words
+//!
+//! [gate]                          # milestone gating (see docs/requirements.md)
+//! started_milestones = [1, 2]      # requirements of other milestones scan as `planned`
 //!
 //! [server]
 //! host = "127.0.0.1"
@@ -65,6 +69,8 @@ pub struct ConfigFile {
     pub server: ServerFile,
     #[serde(default)]
     pub lint: LintFile,
+    #[serde(default)]
+    pub gate: GateFile,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -73,6 +79,8 @@ pub struct LintFile {
     /// White paper path (default `docs/whitepaper.md`), relative to the config file's repository.
     pub whitepaper: Option<PathBuf>,
     pub strict: Option<bool>,
+    /// Every requirement needs a valid `Milestone:` (and `Seam:` no greater than it).
+    pub require_milestone: Option<bool>,
     pub vague_words: Option<Vec<String>>,
     #[serde(default)]
     pub internal_markers: Vec<String>,
@@ -81,12 +89,38 @@ pub struct LintFile {
     pub spec: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GateFile {
+    /// Milestones that are started. Unset: every requirement counts as started.
+    pub started_milestones: Option<Vec<u32>>,
+}
+
+/// Resolved `[gate]` settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct GateConfig {
+    /// `None`: no gating. `Some`: a requirement whose `Milestone:` is not listed is `planned`;
+    /// a requirement without a `Milestone:` is started.
+    pub started_milestones: Option<Vec<u32>>,
+}
+
+impl GateConfig {
+    /// Whether a requirement with this milestone is started.
+    pub fn is_started(&self, milestone: Option<u32>) -> bool {
+        match (&self.started_milestones, milestone) {
+            (Some(list), Some(m)) => list.contains(&m),
+            _ => true,
+        }
+    }
+}
+
 /// Resolved `[lint]` settings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LintConfig {
     /// Absolute path of the white paper (may not exist).
     pub whitepaper: PathBuf,
     pub strict: bool,
+    pub require_milestone: bool,
     /// Replacement for the built-in banned words, if configured.
     pub vague_words: Option<Vec<String>>,
     /// Extra words that mark an internal detail, added to the built-in ones.
@@ -168,6 +202,7 @@ pub struct Config {
     pub authority: AuthorityRules,
     pub semantic: SemanticConfig,
     pub lint: LintConfig,
+    pub gate: GateConfig,
     pub host: String,
     pub port: u16,
 }
@@ -275,6 +310,7 @@ impl Config {
                     .unwrap_or(Path::new("docs/whitepaper.md")),
             ),
             strict: file.lint.strict.unwrap_or(false),
+            require_milestone: file.lint.require_milestone.unwrap_or(false),
             vague_words: file.lint.vague_words,
             internal_markers: file.lint.internal_markers,
             spec: file.lint.spec,
@@ -290,6 +326,9 @@ impl Config {
             authority: file.authority,
             semantic,
             lint,
+            gate: GateConfig {
+                started_milestones: file.gate.started_milestones,
+            },
             host: cli
                 .host
                 .or(file.server.host)

@@ -330,6 +330,7 @@ impl Engine {
             changed_files: Vec::new(),
             semantic_enabled: self.semantic.enabled(),
             languages: crate::languages().clone(),
+            gate: shared.config.gate.clone(),
         });
         let fs = RepoFs {
             root: shared.config.repo_root.clone(),

@@ -39,7 +39,7 @@ events with `seq > cursor`.
 | POST | `/scans` body `{"force": false}` | `202 {"accepted": true}` |
 | POST | `/analyses` body `{"claims": [clm_id], "all": false}` | `202 {"queued": n}` or `409` when semantic analysis is disabled/unavailable |
 
-Filter values: `status` is a comma list of `verified,violated,unverified,stale,ambiguous,undocumented`;
+Filter values: `status` is a comma list of `verified,violated,unverified,planned,stale,ambiguous,undocumented`;
 `severity` comma list of `critical,high,medium,low,info`; `method` one of `structural,semantic,adversarial`;
 `lifecycle` one of `open` (default), `resolved`, `all`; `new=true` keeps findings introduced in the latest
 revision that had file changes; `sort` one of `severity` (default), `updated`, `status`, `title`;
@@ -60,7 +60,7 @@ Status = {
 Repository = { seq, root, spec_roots, src_roots, state_dir, crates: [CrateInfo], from_cargo_metadata, warnings, config: Config }
 
 DocumentSummary = { id, path, title, authority: AuthorityAssessment, sections, claims, obligations,
-                    status_counts: { verified, violated, unverified, stale, ambiguous } }
+                    status_counts: { verified, violated, unverified, planned, stale, ambiguous } }
 DocumentDetail = { seq, document: Document, sections: [Section], claims: [ClaimView], prose_references: [ProseReference] }
 
 ClaimView = { claim: Claim, status: FindingStatus|null, finding: fnd_id|null, document_path }

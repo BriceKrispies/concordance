@@ -45,4 +45,6 @@ pub struct BatchContext {
     pub semantic_enabled: bool,
     /// Registered source-language plugins (signature normalisation).
     pub languages: concordance_core::lang::Languages,
+    /// `[gate]` settings: which milestones are started.
+    pub gate: concordance_core::config::GateConfig,
 }
