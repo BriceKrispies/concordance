@@ -18,6 +18,7 @@ mod discover;
 mod scan;
 mod semantic;
 pub mod source;
+pub mod virtuals;
 mod watch;
 
 use concordance_core::config::Config;
@@ -219,10 +220,11 @@ pub fn languages() -> &'static concordance_core::lang::Languages {
 /// Identifies the extractor build; persisted so that extractor changes force re-indexing.
 pub fn extractor_version() -> String {
     format!(
-        "{}+{}+{}",
+        "{}+{}+{}+{}",
         concordance_markdown::EXTRACTOR_VERSION,
         languages().extractor_versions(),
-        concordance_reconcile::RULES_VERSION
+        concordance_reconcile::RULES_VERSION,
+        concordance_exegra::EXTRACTOR_VERSION
     )
 }
 

@@ -11,7 +11,7 @@
 //!   Otherwise it is reported as `superseded` and never published as current.
 
 use crate::apply::Pending;
-use crate::source::read_text;
+use crate::source::{read_doc_text, read_text};
 use crate::{Command, Shared};
 use concordance_core::code::Symbol;
 use concordance_core::doc::Claim;
@@ -756,7 +756,7 @@ fn build_request(
     };
     let claim = m.claims.get(claim_id)?;
     let doc = m.documents.get(&claim.document)?;
-    let doc_text = read_text(root, &doc.path)
+    let doc_text = read_doc_text(m, root, &doc.path)
         .ok()
         .filter(|t| ContentHash::of_str(t) == doc.content_hash)?;
     let doc_lines: Vec<&str> = doc_text.lines().collect();
@@ -931,7 +931,10 @@ impl ContextProvider for ModelProvider {
         );
         let (text, dependency, document) = match indexed {
             Some((node, hash, doc)) => {
-                let text = read_text(&root, &rp).ok()?;
+                let text = match self.shared.read(|m| m.virtual_docs.get(&rp).cloned()).0 {
+                    Some(v) => v.text.clone(),
+                    None => read_text(&root, &rp).ok()?,
+                };
                 if ContentHash::of_str(&text) != hash {
                     return None;
                 }

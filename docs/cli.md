@@ -3,8 +3,10 @@
 ```
 concordance serve  [common] [--port N] [--host ADDR] [--no-watch]
 concordance scan   [common] [--json | --jsonl] [--force] [--fail-on none|proven|violated] [-v] [--include-resolved]
+                   [--exegra-results FILE [--no-generated-at]]
 concordance watch  [common] [--jsonl]
 concordance report [common] [--format text|json] [--fail-on ...] [-v] [--include-resolved]
+                   [--exegra-results FILE [--no-generated-at]]
 concordance lint   [common] [--strict] [--json]     # requirement format, see docs/spec-lint.md
 
 common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
@@ -12,7 +14,9 @@ common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
         --test-results FILE (repeatable; see docs/requirements.md)
 ```
 
-Roots may be absolute or relative to the repository. Without `--config`, `concordance.toml` in
+Roots may be absolute or relative to the repository. A `--spec-root` may name a single file, for
+example the structured specification (`--spec-root specs/spec.jsonc`, see
+[requirements.md](requirements.md#structured-sources-exegra-jsonc)). Without `--config`, `concordance.toml` in
 the repository is used if it exists. Command-line values override the file; a repeated
 `--spec-root`/`--src-root` replaces the file's whole list. See `examples/concordance.toml` for the
 schema (it is intentionally small: roots, excludes, state dir, authority globs, semantic, server). `[gate] started_milestones = [1, 2]` marks the milestones that
@@ -42,7 +46,48 @@ left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requi
 - `watch` streams events until Ctrl+C; with `--jsonl` the stream is machine-readable.
 - `report` reads persisted state without scanning or probing Claude.
 
+- In a virtual document (rendered from a structured source) every location is followed by its origin:
+  `specifications/kernel.md:23 (specifications/spec.jsonc:1320 krn-002)`. `scan --json` and
+  `report --format json` add `location_origins` to a finding (parallel to `locations`, `null` where a
+  location is not in a virtual document) and `origin` to each of its `claim_refs`. Both are absent when
+  nothing is in a virtual document. `lint --json` adds `origin` to a finding.
+- `report` renders the structured sources again, because persisted state holds no virtual documents. If
+  the state is older than the source it warns on stderr: run `scan` first.
+
 None of the commands need a TTY. They work with piped stdin and stdout.
+
+## Exegra results
+
+`concordance scan --exegra-results FILE` and `concordance report --exegra-results FILE` write the
+results of a structured specification source (see [requirements.md](requirements.md#structured-sources-exegra-jsonc))
+to `FILE`, for Exegra to read. The normal output is unchanged. `--no-generated-at` leaves out the only
+time in the file, so identical state gives identical bytes. Exit code 2 when there is no structured
+source under the spec roots, when `FILE` cannot be written, or (for `report`) when the persisted state is
+older than the source. The file has sorted keys:
+
+```json
+{
+  "claims": {
+    "krn-002": { "detail": "Proved by passing test `krn_002_halts`.", "outcome": "pass", "proofs": ["krn_002_halts"], "status": "verified" }
+  },
+  "generatedAt": "2026-11-14T12:00:00Z",
+  "lint": [ { "claim": "krn-001", "entity": "krn-001", "line": 31, "message": "...", "rule": "R1", "severity": "error" } ],
+  "source": "specifications/spec.jsonc",
+  "tool": "concordance",
+  "version": "0.1.0"
+}
+```
+
+- `claims` is keyed by the id of the Exegra claim entity the requirement was rendered from, and has an
+  entry **only** for a requirement whose Concordance status is `verified` (`outcome` `pass`) or
+  `violated` (`fail`). Every other status (unverified, planned, stale, ambiguous) is omitted: absence
+  means "not established". `status` and `proofs` come from reconciliation, not from a second derivation:
+  `proofs` are the tests whose recorded outcome supports (or, for `fail`, contradicts) the requirement;
+  `detail` is one sentence naming them or the contradiction. A requirement defined twice is omitted.
+- `lint` has every lint finding located in the source (rule, severity, message as in
+  [spec-lint.md](spec-lint.md)) and every problem in the source (rule `R0`). `claim` is the entity id when
+  the entity is a requirement, else `null`; `entity` is the entity id or `null`; `line` is the line of the
+  entity in the JSONC file. With several structured sources `source` lists them comma separated.
 
 ## Semantic analysis
 

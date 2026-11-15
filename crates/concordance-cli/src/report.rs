@@ -2,6 +2,7 @@
 
 use concordance_core::config::GateConfig;
 use concordance_core::finding::{Counts, Finding, FindingCategory, FindingStatus};
+use concordance_core::virtual_doc::Origin;
 use concordance_core::{RepoPath, Revision, SourceRange};
 use concordance_engine::SemanticStatus;
 use concordance_graph::Model;
@@ -26,6 +27,9 @@ pub struct ClaimRef {
     pub document: Option<RepoPath>,
     pub range: SourceRange,
     pub authority: concordance_core::doc::Authority,
+    /// For a claim in a virtual document: where its first line was rendered from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
 }
 
 #[derive(Serialize)]
@@ -44,6 +48,29 @@ pub struct ReportFinding {
     /// `Milestone:` of the requirement the finding is about, when it has a valid one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub milestone: Option<u32>,
+    /// Parallel to `locations`: where each location in a virtual document was rendered from in
+    /// its source file. Absent when no location is in a virtual document.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub location_origins: Vec<Option<Origin>>,
+}
+
+/// The origin of the start of each location, or nothing when none has one.
+fn origins_of(m: &Model, f: &Finding) -> Vec<Option<Origin>> {
+    let all: Vec<Option<Origin>> = f
+        .locations
+        .iter()
+        .map(|l| m.origin_of(&l.path, l.start_line))
+        .collect();
+    if all.iter().all(Option::is_none) {
+        Vec::new()
+    } else {
+        all
+    }
+}
+
+/// `path:line`, followed by the origin in parentheses when there is one.
+fn located(l: &SourceRange, origin: Option<&Origin>) -> String {
+    Origin::annotate(&l.to_string(), origin)
 }
 
 #[derive(Serialize)]
@@ -172,6 +199,7 @@ pub fn build(
                         document: m.documents.get(&c.document).map(|d| d.path.clone()),
                         range: c.range.clone(),
                         authority: c.authority,
+                        origin: m.origin_of(&c.range.path, c.range.start_line),
                     })
                     .collect(),
                 symbol_refs: f
@@ -185,6 +213,7 @@ pub fn build(
                     })
                     .collect(),
                 milestone: milestone_of(m, f),
+                location_origins: origins_of(m, f),
                 finding: f.clone(),
             })
             .collect(),
@@ -232,11 +261,12 @@ pub fn human(r: &Report, verbose: bool) -> String {
         let _ = writeln!(out, "{} ({})", status.as_str().to_uppercase(), items.len());
         let limit = if show_all { usize::MAX } else { 10 };
         for f in items.iter().take(limit) {
+            let origin_at = |i: usize| f.location_origins.get(i).and_then(Option::as_ref);
             let loc = f
                 .finding
                 .locations
                 .first()
-                .map(|l| l.to_string())
+                .map(|l| located(l, origin_at(0)))
                 .unwrap_or_default();
             let _ = writeln!(
                 out,
@@ -255,8 +285,8 @@ pub fn human(r: &Report, verbose: bool) -> String {
                         let _ = writeln!(out, "        {line}");
                     }
                 }
-                for l in f.finding.locations.iter().skip(1).take(3) {
-                    let _ = writeln!(out, "        see {l}");
+                for (i, l) in f.finding.locations.iter().enumerate().skip(1).take(3) {
+                    let _ = writeln!(out, "        see {}", located(l, origin_at(i)));
                 }
             }
         }

@@ -6,6 +6,7 @@ It reads the claims in your docs (requirements, MUST/SHALL statements, documente
 
 - Requirement IDs in the spec (`**LANG-006.3**`) link to tests that declare `Verifies: LANG-006.3`. Ingested test results (libtest, nextest, JUnit, vitest/jest) then verify or violate them.
 - `concordance lint --strict` enforces the spec-driven requirement format (atomic, observable, at the boundary, provable, traceable to a white paper): see `docs/spec-lint.md`.
+- A specification kept as one structured JSONC file in the Exegra format works the same way: Concordance reads its requirement and prose properties, reports locations in terms of the JSONC, and can write per-requirement results back for Exegra (`--exegra-results`). See `docs/requirements.md`.
 - Languages are plugins. Rust, TypeScript, C# and Lean 4 are built in.
 - It runs locally and watches the repository, updating findings as files change. It never modifies the repository it analyzes.
 - Use it headless (`scan`, `watch`, `report`, with JSON output and CI exit codes) or through a local web UI (`serve`).

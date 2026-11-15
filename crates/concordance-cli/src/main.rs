@@ -6,6 +6,7 @@
 //! * 2: usage or configuration error
 //! * 3: runtime error (state store, I/O)
 
+mod exegra;
 mod report;
 
 use clap::{Args, Parser, Subcommand};
@@ -112,6 +113,19 @@ struct ScanArgs {
     /// Include resolved findings.
     #[arg(long)]
     include_resolved: bool,
+    #[command(flatten)]
+    exegra: ExegraArgs,
+}
+
+/// Results for a structured (Exegra) specification source; see docs/cli.md.
+#[derive(Args, Clone)]
+struct ExegraArgs {
+    /// Write the per-requirement results (pass/fail, lint) to FILE for Exegra to read.
+    #[arg(long = "exegra-results", value_name = "FILE")]
+    exegra_results: Option<PathBuf>,
+    /// Leave `generatedAt` out of the Exegra results, so the same state gives the same bytes.
+    #[arg(long, requires = "exegra_results")]
+    no_generated_at: bool,
 }
 
 #[derive(Args)]
@@ -147,6 +161,8 @@ struct ReportArgs {
     verbose: bool,
     #[arg(long)]
     include_resolved: bool,
+    #[command(flatten)]
+    exegra: ExegraArgs,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -349,6 +365,7 @@ async fn scan(a: ScanArgs) -> ExitCode {
     };
     let repo = config.repo_root.display().to_string();
     let gate = config.gate.clone();
+    let results_config = config.clone();
     let (engine, task, bus) = match start_engine(config, false).await {
         Ok(v) => v,
         Err(c) => return c,
@@ -412,10 +429,25 @@ async fn scan(a: ScanArgs) -> ExitCode {
             &gate,
         )
     });
+    let exegra_failure = match &a.exegra.exegra_results {
+        Some(path) => {
+            let set = concordance_engine::virtuals::load_virtual(&results_config);
+            engine
+                .shared
+                .read(|m| write_exegra_results(m, &set, &results_config, &a.exegra, path))
+                .0
+                .err()
+        }
+        None => None,
+    };
     engine.shutdown();
     bus.close();
     let _ = task.await;
     let _ = streamer.await;
+    if let Some(e) = exegra_failure {
+        eprintln!("error: {e}");
+        return ExitCode::from(2);
+    }
     if a.json || a.jsonl {
         let out = serde_json::to_string(&rep).unwrap_or_default();
         println!("{out}");
@@ -544,12 +576,53 @@ fn describe(e: &Event) -> String {
     }
 }
 
+/// Write the Exegra results file for `model`, whose virtual documents are those of `set`.
+fn write_exegra_results(
+    model: &concordance_graph::Model,
+    set: &concordance_engine::virtuals::VirtualSet,
+    config: &Config,
+    args: &ExegraArgs,
+    path: &Path,
+) -> Result<(), String> {
+    if set.sources.is_empty() {
+        return Err(
+            "--exegra-results: no structured specification source (an Exegra JSONC file) under the spec roots"
+                .to_string(),
+        );
+    }
+    let results = exegra::build(model, set, config);
+    let generated_at = if args.no_generated_at {
+        None
+    } else {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        Some(exegra::rfc3339(secs))
+    };
+    let text = exegra::render(&results, env!("CARGO_PKG_VERSION"), generated_at.as_deref());
+    std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+/// The first virtual document whose indexed text is not the one `set` renders now: the persisted
+/// state is older than the source.
+fn state_behind(
+    model: &concordance_graph::Model,
+    set: &concordance_engine::virtuals::VirtualSet,
+) -> Option<String> {
+    set.docs.iter().find_map(|(path, doc)| {
+        let current = model.document_by_path(path).map(|d| d.content_hash.clone());
+        (current != Some(concordance_core::ContentHash::of_str(&doc.text)))
+            .then(|| path.to_string())
+    })
+}
+
 fn report_cmd(a: ReportArgs) -> ExitCode {
     let config = match config_or_exit(&a.common, None, None) {
         Ok(c) => c,
         Err(code) => return code,
     };
-    let model = match concordance_engine::load_persisted(&config) {
+    let mut model = match concordance_engine::load_persisted(&config) {
         Ok(Some(m)) => m,
         Ok(None) => {
             eprintln!(
@@ -563,6 +636,26 @@ fn report_cmd(a: ReportArgs) -> ExitCode {
             return ExitCode::from(3);
         }
     };
+    // Persisted state holds no virtual documents: render the structured sources again, so
+    // locations can say where they were rendered from.
+    let set = concordance_engine::virtuals::load_virtual(&config);
+    if let Some(p) = state_behind(&model, &set) {
+        if a.exegra.exegra_results.is_some() {
+            eprintln!(
+                "error: the persisted state is older than the specification source (`{p}` differs); run `concordance scan` first"
+            );
+            return ExitCode::from(2);
+        }
+        eprintln!("warning: the persisted state is older than the specification source (`{p}` differs); run `concordance scan`");
+    }
+    model.virtual_docs = set.docs.clone();
+    model.virtual_diagnostics = set.diagnostics.clone();
+    if let Some(path) = &a.exegra.exegra_results {
+        if let Err(e) = write_exegra_results(&model, &set, &config, &a.exegra, path) {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    }
     let semantic = concordance_engine::SemanticStatus {
         enabled: config.semantic.enabled,
         available: None,

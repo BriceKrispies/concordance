@@ -217,14 +217,18 @@ pub async fn claim(
         let c = m.claims.get(&id)?;
         let node = NodeRef::Claim(id.clone());
         let f = m.claim_finding(&id);
-        Some(json!({
+        let mut detail = json!({
             "claim": c,
             "document": m.documents.get(&c.document),
             "status": f.filter(|f| f.is_open()).map(|f| f.status),
             "finding": f,
             "edges": m.edges_from(&node).map(|e| edge_view(m, e)).collect::<Vec<_>>(),
             "evidence": m.evidence_for(&node).collect::<Vec<_>>(),
-        }))
+        });
+        if let Some(o) = m.origin_of(&c.range.path, c.range.start_line) {
+            detail["origin"] = json!(o);
+        }
+        Some(detail)
     });
     let mut v = v.ok_or_else(|| not_found_err("claim"))?;
     v["seq"] = json!(seq);
@@ -555,14 +559,24 @@ pub async fn finding(
                 }
             }
         }
-        Some(json!({
+        let mut detail = json!({
             "finding": f,
             "claims": claims,
             "symbols": symbols,
             "evidence": evidence,
             "spec_excerpts": spec_excerpts,
             "code_excerpts": code_excerpts,
-        }))
+        });
+        // Parallel to `finding.locations`; present only when one is in a virtual document.
+        let origins: Vec<_> = f
+            .locations
+            .iter()
+            .map(|l| m.origin_of(&l.path, l.start_line))
+            .collect();
+        if origins.iter().any(Option::is_some) {
+            detail["location_origins"] = json!(origins);
+        }
+        Some(detail)
     });
     let mut v = v.ok_or_else(|| not_found_err("finding"))?;
     let history = {

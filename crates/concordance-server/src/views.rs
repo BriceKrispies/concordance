@@ -4,6 +4,7 @@ use concordance_core::code::{SourceFile, Symbol, SymbolKind, Visibility};
 use concordance_core::doc::{AuthorityAssessment, Claim, Document};
 use concordance_core::finding::{FindingStatus, FindingSubject};
 use concordance_core::graph::{Edge, EdgeKind, NodeRef};
+use concordance_core::virtual_doc::Origin;
 use concordance_core::{DocumentId, RepoPath, SourceRange, SymbolId};
 use concordance_graph::Model;
 use serde::Serialize;
@@ -63,6 +64,9 @@ pub struct DocumentSummary {
     pub claims: usize,
     pub obligations: usize,
     pub status_counts: StatusCounts,
+    /// For a virtual document: the structured source file it is rendered from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<RepoPath>,
 }
 
 pub fn document_summary(m: &Model, d: &Document) -> DocumentSummary {
@@ -87,6 +91,7 @@ pub fn document_summary(m: &Model, d: &Document) -> DocumentSummary {
         claims,
         obligations,
         status_counts: counts,
+        source: m.virtual_docs.get(&d.path).map(|v| v.source.clone()),
     }
 }
 
@@ -96,6 +101,9 @@ pub struct ClaimView {
     pub status: Option<FindingStatus>,
     pub finding: Option<String>,
     pub document_path: Option<RepoPath>,
+    /// For a claim in a virtual document: where its first line was rendered from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
 }
 
 pub fn claim_view(m: &Model, c: &Claim) -> ClaimView {
@@ -105,6 +113,7 @@ pub fn claim_view(m: &Model, c: &Claim) -> ClaimView {
         status: f.map(|f| f.status),
         finding: f.map(|f| f.id.to_string()),
         document_path: m.documents.get(&c.document).map(|d| d.path.clone()),
+        origin: m.origin_of(&c.range.path, c.range.start_line),
     }
 }
 

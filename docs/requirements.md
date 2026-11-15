@@ -35,6 +35,82 @@ dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`. IDs are recognised on
 defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
 (`PROJ-2147`) are not requirements.
 
+## Structured sources (Exegra JSONC)
+
+A project may keep its whole specification as **one JSONC file in the Exegra format** (JSON with `//`
+and `/* */` comments and trailing commas), edited as structured data, instead of Markdown files. Name
+the file in `spec_roots` (`--spec-root specs/spec.jsonc`), or leave it under a spec root: a `.jsonc` or
+`.json` file with a top-level `"exegra"` key is a structured source; any other `.json` file is ignored.
+Markdown input is unchanged and may be used alongside.
+
+Concordance reads the file's **properties**, renders each document to Markdown in the formats this
+documentation describes, and indexes that text exactly as it indexes a file. So linking, verification,
+lint, authority globs (`[authority]`, `[lint] whitepaper`, `[lint] spec`) and `Cases:` files work on
+the structured source with the same paths they had as Markdown. The rendered texts are *virtual
+documents*; nothing is written to disk.
+
+| Source | Becomes |
+|---|---|
+| `documents[]` `{id, path, title, role}` | one virtual document at `path` (a repository-relative name; no file need exist). `role` is not interpreted, except that `cases` documents take their text from their case table |
+| `sections[]` `{id, title, level, document, order, body}` | the heading line (`#` x `level` + `title`; none for level 0) and `body`, in `order` |
+| marker line `{{entity:<id>}}` in a `body` | the rendering of that entity (below). A marker that cannot be rendered stays in the text and is reported |
+| `caseTables[]` `{path, document, body}` | the text of the `cases` document `document` |
+
+**Rendering of entities** (line breaks inside a property become spaces):
+
+| Entity | Rendered |
+|---|---|
+| requirement (`claims[]`, `"kind":"requirement"`) | `**<ref>** <statement>` and attribute bullets, below |
+| goal, non-goal, constraint, decision, open question | `- **<ref>** <statement>` (a decision with no `statement` uses its `title`) |
+| boundary, component | a table row `\| <ref> \| <name> \| <interfaceKind or category> \| <usedBy or purpose> \|`, preceded by a header and separator row when the previous line is not a row of the same table |
+| any other entity (term, release stage, milestone, ...) | one paragraph of its main text properties: `<name, title or term>: <purpose, statement, definition, proves, detail, exitEvidence, description>` |
+
+**The Exegra requirement profile.** A requirement is a `claims[]` entity with `"kind":"requirement"`.
+These properties are read, and an attribute bullet is written only when its property is present, in
+this order:
+
+| Property | Rendered |
+|---|---|
+| `ref` (required) | the ID in `**<ref>**`, as written (`KRN-002`) |
+| `statement` (required) | the statement after the ID |
+| `lifecycle` = `retired` | `- Status: retired` |
+| `evaluate.method` | `- Verify: <method>` |
+| `cases[]` (case table ids), `casesPath` | `- Cases: <path of each case table>, <casesPath>`. A `casesPath` matches no case table; it is reported and written as is |
+| `boundary` (id of an entity with a `ref`), `boundaryDetail` | `- Boundary: <ref of the boundary> <boundaryDetail>` |
+| `traces[]` (entity ids) | `- Traces: <ref>, <ref>` |
+| `dependsOn[]` (claim ids) | `- Depends: <ref>, <ref>` |
+| `rationale` | `- Rationale: <rationale>` |
+| `milestone` | `- Milestone: <n>` |
+| `seam` | `- Seam: <n>` |
+
+A requirement without `ref` or `statement` is an error: its marker stays in the text. A reference to an
+entity that does not exist (or has no `ref`) is a warning, and the id is written instead.
+
+**`raw` is never read.** Exegra entities may carry `raw`, the Markdown they were first imported from.
+It goes stale as soon as a property is edited, so Concordance renders from properties only. A section's
+`body` is a property like any other.
+
+**Virtual documents.** A virtual document is keyed by its `path` like a file, and hashed by its rendered
+text. Rescanning re-renders every source, re-indexes only the documents whose text changed and
+removes the ones that no longer render. The Markdown and the structured form of one document must not
+both be present: a path that is both a Markdown file and a virtual document, or the `path` of two
+sources, is reported as an error and **neither is indexed**.
+
+**Locations.** Lines and ranges are those of the rendered text, so a finding is at
+`specifications/kernel.md:23`. Where a location is in a virtual document, outputs also say where it was
+rendered from: `specifications/kernel.md:23 (specifications/spec.jsonc:1320 krn-002)` is the JSONC
+file, the line of the entity and the entity id. See [cli.md](cli.md) and [api.md](api.md).
+
+**Problems in the source** (a marker naming an unknown entity, a section naming an unknown document,
+duplicate document paths, a `cases` document without a case table, a requirement without `ref` or
+`statement`, a duplicate entity id, a line that is more than one marker, a reference that does not
+resolve, a `casesPath`) are reported on every scan as system events and by `concordance lint` as rule
+`R0`: never silently dropped.
+
+**Results for Exegra.** `concordance scan --exegra-results FILE` and `concordance report
+--exegra-results FILE` write each requirement's `pass`/`fail` result and the lint findings by entity
+id, in a file Exegra reads. See [cli.md](cli.md#exegra-results).
+
 ## Milestones
 
 `Milestone: N` names the milestone at which a requirement is first verified; `Seam: M` (with `M <= N`)

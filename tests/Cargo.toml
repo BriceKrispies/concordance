@@ -13,6 +13,7 @@ concordance-events.workspace = true
 concordance-graph.workspace = true
 concordance-lint.workspace = true
 concordance-markdown.workspace = true
+concordance-exegra.workspace = true
 concordance-semantic.workspace = true
 concordance-server.workspace = true
 tokio.workspace = true

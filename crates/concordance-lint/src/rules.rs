@@ -66,6 +66,7 @@ impl Sink {
             message: msg,
             path: path.to_string(),
             line,
+            origin: None,
         });
     }
     fn err(&mut self, rule: &'static str, path: &str, line: u32, msg: String) {
@@ -573,18 +574,18 @@ fn r4_cases(r: &Req, method: &str, input: &LintInput<'_>, sink: &mut Sink) {
         sink.err("R4", path, c.line, format!("{id}: `Cases:` names no file"));
         return;
     }
-    let Some(root) = input.repo_root else {
+    if input.repo_root.is_none() && input.virtual_docs.is_none() {
         return;
-    };
+    }
     for f in files {
-        match std::fs::read_to_string(root.join(f)) {
-            Err(_) => sink.err(
+        match input.read_file(f) {
+            None => sink.err(
                 "R4",
                 path,
                 c.line,
                 format!("{id}: `Cases:` file `{f}` does not exist"),
             ),
-            Ok(text) => {
+            Some(text) => {
                 if let Err(e) = crate::cases::parse_cases(&text) {
                     sink.err(
                         "R4",
@@ -886,6 +887,7 @@ mod tests {
             model: None,
             settings: &settings,
             repo_root: None,
+            virtual_docs: None,
         };
         run(&input)
             .into_iter()
@@ -922,6 +924,7 @@ mod tests {
             model: None,
             settings: &settings,
             repo_root: root,
+            virtual_docs: None,
         };
         run(&input)
             .into_iter()

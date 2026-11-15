@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FileKind {
     Markdown,
+    /// A `.jsonc` or `.json` file under a spec root: a structured specification source when its
+    /// content says so (see `virtuals`). Discovery cannot tell without reading it.
+    Exegra,
     /// Source code owned by the language plugin with this id.
     Source(&'static str),
 }
@@ -73,10 +76,11 @@ impl PathFilter {
         let rel = RepoPath::from_fs(&self.root, abs)?;
         let kind = match rel.extension()? {
             "md" => FileKind::Markdown,
+            "jsonc" | "json" => FileKind::Exegra,
             ext => FileKind::Source(crate::languages().for_extension(ext)?.id()),
         };
         let roots = match kind {
-            FileKind::Markdown => &self.spec_roots,
+            FileKind::Markdown | FileKind::Exegra => &self.spec_roots,
             FileKind::Source(_) => &self.src_roots,
         };
         let under_root = roots.iter().any(|r| {

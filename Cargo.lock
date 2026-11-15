@@ -336,6 +336,7 @@ dependencies = [
  "concordance-core",
  "concordance-csharp",
  "concordance-events",
+ "concordance-exegra",
  "concordance-graph",
  "concordance-lean",
  "concordance-markdown",
@@ -358,6 +359,13 @@ version = "0.1.0"
 dependencies = [
  "concordance-core",
  "tokio",
+]
+
+[[package]]
+name = "concordance-exegra"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -463,6 +471,7 @@ dependencies = [
  "concordance-core",
  "concordance-engine",
  "concordance-events",
+ "concordance-exegra",
  "concordance-graph",
  "concordance-lint",
  "concordance-markdown",

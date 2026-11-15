@@ -8,6 +8,7 @@ use crate::{Engine, LastScan, ScanStatus};
 use concordance_core::code::{SourceIndex, WorkspaceInfo};
 use concordance_core::doc::{AuthoritySource, DocumentIndex};
 use concordance_core::event::{ChangeKind, Envelope, Event, ScanPhase, ScanReason};
+use concordance_core::virtual_doc::VirtualDoc;
 use concordance_core::{ContentHash, RepoPath, Timestamp};
 use concordance_reconcile::BatchContext;
 use concordance_storage::RevisionRecord;
@@ -28,6 +29,8 @@ struct Target {
     rel: RepoPath,
     kind: FileKind,
     abs: PathBuf,
+    /// A virtual document: its rendered text is used instead of reading `abs`.
+    rendered: Option<Arc<VirtualDoc>>,
 }
 
 /// What the model currently knows about a path (to skip unchanged files).
@@ -146,10 +149,21 @@ impl Engine {
         let discovered = tokio::task::spawn_blocking(move || {
             let ws = crate::languages().discover(&cfg.repo_root, &cfg.src_roots);
             let files = PathFilter::new(&cfg).discover();
-            (ws, files)
+            let mut virtuals = crate::virtuals::render_sources(&files);
+            let markdown: BTreeSet<RepoPath> = files
+                .iter()
+                .filter(|f| f.1 == FileKind::Markdown)
+                .map(|f| f.0.clone())
+                .collect();
+            let conflicts = crate::virtuals::resolve_conflicts(&mut virtuals, &markdown);
+            let files: Vec<_> = files
+                .into_iter()
+                .filter(|f| f.1 != FileKind::Exegra && !conflicts.contains(&f.0))
+                .collect();
+            (ws, files, virtuals)
         })
         .await;
-        let (ws, files) = match discovered {
+        let (ws, files, virtuals) = match discovered {
             Ok(v) => v,
             Err(e) => {
                 self.publish_now(Event::SystemError {
@@ -161,6 +175,14 @@ impl Engine {
         };
         for w in &ws.warnings {
             self.publish_now(Event::SystemWarning { message: w.clone() });
+        }
+        for d in &virtuals.diagnostics {
+            let message = d.to_string();
+            self.publish_now(if d.error {
+                Event::SystemError { message }
+            } else {
+                Event::SystemWarning { message }
+            });
         }
         let c = &self.shared.config;
         self.publish_now(Event::RepositoryDiscovered {
@@ -175,14 +197,19 @@ impl Engine {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
-            markdown_files: files.iter().filter(|f| f.1 == FileKind::Markdown).count() as u32,
+            markdown_files: (files.iter().filter(|f| f.1 == FileKind::Markdown).count()
+                + virtuals.docs.len()) as u32,
             rust_files: files
                 .iter()
                 .filter(|f| matches!(f.1, FileKind::Source(_)))
                 .count() as u32,
             crates: ws.crates.len() as u32,
         });
-        let present: BTreeSet<RepoPath> = files.iter().map(|f| f.0.clone()).collect();
+        let present: BTreeSet<RepoPath> = files
+            .iter()
+            .map(|f| f.0.clone())
+            .chain(virtuals.docs.keys().cloned())
+            .collect();
         let removed: Vec<(RepoPath, FileKind)> = {
             let (r, _) = self.shared.read(|m| {
                 let mut r: Vec<(RepoPath, FileKind)> = m
@@ -201,17 +228,47 @@ impl Engine {
             });
             r
         };
-        let targets = files
+        let mut targets: Vec<Target> = files
             .into_iter()
-            .map(|(rel, kind, abs)| Target { rel, kind, abs })
+            .map(|(rel, kind, abs)| Target {
+                rel,
+                kind,
+                abs,
+                rendered: None,
+            })
             .collect();
-        self.process(scan_id, reason, targets, removed, force, Some(ws), started)
-            .await;
+        let root = self.shared.config.repo_root.clone();
+        for (rel, doc) in &virtuals.docs {
+            targets.push(Target {
+                rel: rel.clone(),
+                kind: FileKind::Markdown,
+                abs: doc.source.to_fs(&root),
+                rendered: Some(doc.clone()),
+            });
+        }
+        self.process(
+            scan_id,
+            reason,
+            targets,
+            removed,
+            force,
+            Some(ws),
+            Some(virtuals),
+            started,
+        )
+        .await;
     }
 
     /// Paths reported by the watcher (absolute). Coalesced and classified here.
     pub(crate) async fn files_changed(&mut self, paths: Vec<PathBuf>) {
         let filter = PathFilter::new(&self.shared.config);
+        // A structured source, or a path a virtual document has, changing can add, remove or
+        // rename virtual documents, which only a pass over every source can tell. The
+        // hash comparison keeps that pass incremental.
+        if self.touches_virtual(&paths, &filter) {
+            self.scan(false, ScanReason::Watch).await;
+            return;
+        }
         let mut targets: BTreeMap<RepoPath, Target> = BTreeMap::new();
         let mut removed: BTreeMap<RepoPath, FileKind> = BTreeMap::new();
         let mut results_touched = false;
@@ -223,7 +280,15 @@ impl Engine {
             if p.is_file() {
                 if let Some((rel, kind)) = filter.classify(&p) {
                     removed.remove(&rel);
-                    targets.insert(rel.clone(), Target { rel, kind, abs: p });
+                    targets.insert(
+                        rel.clone(),
+                        Target {
+                            rel,
+                            kind,
+                            abs: p,
+                            rendered: None,
+                        },
+                    );
                 }
                 continue;
             }
@@ -266,9 +331,37 @@ impl Engine {
             removed.into_iter().collect(),
             false,
             None,
+            None,
             Instant::now(),
         )
         .await;
+    }
+
+    /// Whether any of `paths` is, or may have been, a structured source or a virtual document.
+    fn touches_virtual(&self, paths: &[PathBuf], filter: &PathFilter) -> bool {
+        let (hit, _) = self.shared.read(|m| {
+            paths.iter().any(|p| {
+                if let Some((rel, kind)) = filter.classify(p) {
+                    if m.virtual_docs.contains_key(&rel) {
+                        return true;
+                    }
+                    // A `.json` or `.jsonc` file matters when it was a source, or is one now.
+                    if kind == FileKind::Exegra
+                        && (m.virtual_docs.values().any(|v| v.source == rel)
+                            || std::fs::read_to_string(p)
+                                .is_ok_and(|t| concordance_exegra::is_exegra_spec(&t)))
+                    {
+                        return true;
+                    }
+                }
+                RepoPath::from_fs(filter.root(), p).is_some_and(|rel| {
+                    m.virtual_docs
+                        .iter()
+                        .any(|(k, v)| k.starts_with_dir(&rel) || v.source.starts_with_dir(&rel))
+                })
+            })
+        });
+        hit
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -280,9 +373,21 @@ impl Engine {
         removed: Vec<(RepoPath, FileKind)>,
         force: bool,
         workspace: Option<WorkspaceInfo>,
+        virtuals: Option<crate::virtuals::VirtualSet>,
         started: Instant,
     ) {
         let shared = self.shared.clone();
+        // The virtual documents of this batch: the freshly rendered ones, or (a batch that did
+        // not touch any source) the ones the model already has.
+        let virtual_docs = match virtuals {
+            Some(v) => {
+                let mut m = shared.model.write().unwrap_or_else(|e| e.into_inner());
+                m.virtual_docs = v.docs.clone();
+                m.virtual_diagnostics = v.diagnostics;
+                v.docs
+            }
+            None => shared.read(|m| m.virtual_docs.clone()).0,
+        };
         let rules = Arc::new(AuthorityRules::new(&shared.config));
         let (known, ws_changed): (HashMap<RepoPath, Known>, bool) = {
             let (r, _) = shared.read(|m| {
@@ -334,6 +439,7 @@ impl Engine {
         });
         let fs = RepoFs {
             root: shared.config.repo_root.clone(),
+            virtuals: virtual_docs,
         };
         if ws_changed {
             if let Some(w) = &workspace {
@@ -530,6 +636,7 @@ impl Engine {
                 match kind {
                     FileKind::Markdown => pending.remove_document(&mut m, rel, &mut events),
                     FileKind::Source(_) => pending.remove_source(&mut m, rel, &mut events),
+                    FileKind::Exegra => {}
                 }
             }
             let candidates = pending.reconcile(&mut m, &fs, &mut events);
@@ -685,12 +792,16 @@ fn parse_one(
     force: bool,
 ) -> Result<Option<Parsed>, String> {
     let root_rel = &t.rel;
-    let text = match read_text(&repo_root_of(&t.abs, root_rel), root_rel) {
-        Ok(s) => s,
-        Err(e) => return Err(format!("could not read: {e}")),
+    let text = match &t.rendered {
+        Some(v) => v.text.clone(),
+        None => match read_text(&repo_root_of(&t.abs, root_rel), root_rel) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("could not read: {e}")),
+        },
     };
     let hash = ContentHash::of_str(&text);
     match t.kind {
+        FileKind::Exegra => Err("a structured source is not indexed as a document".to_string()),
         FileKind::Markdown => {
             let configured = rules.assess(&t.rel);
             if !force

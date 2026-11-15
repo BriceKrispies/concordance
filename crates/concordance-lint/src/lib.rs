@@ -26,8 +26,12 @@ pub use whitepaper::{parse_index_table, parse_whitepaper, IndexRow, WhitePaperId
 
 use concordance_core::config::{Config, LintConfig};
 use concordance_core::doc::Authority;
+use concordance_core::virtual_doc::{Origin, VirtualDoc};
+use concordance_core::RepoPath;
 use concordance_graph::Model;
 use serde::Serialize;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -56,6 +60,10 @@ pub struct LintFinding {
     pub path: String,
     /// 1-based.
     pub line: u32,
+    /// For a virtual document (rendered from a structured source): where `line` was rendered
+    /// from in the source file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -98,14 +106,14 @@ impl LintReport {
         self.errors > 0
     }
 
-    /// Human-readable lines: `path:line: error[R1] message`.
+    /// Human-readable lines: `path:line: error[R1] message`. In a virtual document the location
+    /// is followed by its origin: `path:line (source.jsonc:12 entity): error[R1] message`.
     pub fn human(&self) -> String {
         let mut out = String::new();
         for f in &self.findings {
             out.push_str(&format!(
-                "{}:{}: {}[{}] {}\n",
-                f.path,
-                f.line,
+                "{}: {}[{}] {}\n",
+                Origin::annotate(&format!("{}:{}", f.path, f.line), f.origin.as_ref()),
                 f.severity.as_str(),
                 f.rule,
                 f.message
@@ -142,6 +150,21 @@ pub struct LintInput<'a> {
     pub settings: &'a LintConfig,
     /// The repository root, to resolve `Cases:` files (`None`: they are not checked).
     pub repo_root: Option<&'a std::path::Path>,
+    /// Documents rendered from structured sources. A `Cases:` file that is one of them is read
+    /// from here, not from the file system.
+    pub virtual_docs: Option<&'a BTreeMap<RepoPath, Arc<VirtualDoc>>>,
+}
+
+impl LintInput<'_> {
+    /// The text of the repository-relative file `rel`: a virtual document, else the file.
+    pub(crate) fn read_file(&self, rel: &str) -> Option<String> {
+        if let (Some(docs), Some(path)) = (self.virtual_docs, RepoPath::from_relative_str(rel)) {
+            if let Some(v) = docs.get(&path) {
+                return Some(v.text.clone());
+            }
+        }
+        std::fs::read_to_string(self.repo_root?.join(rel)).ok()
+    }
 }
 
 /// Run every rule. `strict` turns warnings into errors.
@@ -173,7 +196,11 @@ pub fn lint_repo(model: &Model, config: &Config, strict: bool) -> LintReport {
     docs.sort_by(|a, b| a.path.cmp(&b.path));
     let mut specs = Vec::new();
     for d in &docs {
-        if let Ok(text) = std::fs::read_to_string(d.path.to_fs(root)) {
+        let text = match model.virtual_docs.get(&d.path) {
+            Some(v) => Some(v.text.clone()),
+            None => std::fs::read_to_string(d.path.to_fs(root)).ok(),
+        };
+        if let Some(text) = text {
             specs.push(SpecFile {
                 path: d.path.as_str().to_string(),
                 text,
@@ -192,7 +219,11 @@ pub fn lint_repo(model: &Model, config: &Config, strict: bool) -> LintReport {
     let wp_path = concordance_core::RepoPath::from_fs(root, &config.lint.whitepaper)
         .map(|p| p.as_str().to_string())
         .unwrap_or_else(|| config.lint.whitepaper.display().to_string());
-    let wp_text = std::fs::read_to_string(&config.lint.whitepaper).ok();
+    let wp_text =
+        match RepoPath::from_relative_str(&wp_path).and_then(|p| model.virtual_docs.get(&p)) {
+            Some(v) => Some(v.text.clone()),
+            None => std::fs::read_to_string(&config.lint.whitepaper).ok(),
+        };
     let input = LintInput {
         specs: &specs,
         index: index.as_ref(),
@@ -200,6 +231,28 @@ pub fn lint_repo(model: &Model, config: &Config, strict: bool) -> LintReport {
         model: Some(model),
         settings: &config.lint,
         repo_root: Some(root),
+        virtual_docs: Some(&model.virtual_docs),
     };
-    lint(&input, strict || config.lint.strict)
+    let mut findings = rules::run(&input);
+    // Locations in a virtual document also say where they were rendered from.
+    for f in &mut findings {
+        f.origin = RepoPath::from_relative_str(&f.path).and_then(|p| model.origin_of(&p, f.line));
+    }
+    // Problems in the structured sources themselves (R0): they are in the source file, not in
+    // any rendered document.
+    for d in &model.virtual_diagnostics {
+        findings.push(LintFinding {
+            rule: "R0",
+            severity: if d.error {
+                Severity::Error
+            } else {
+                Severity::Warning
+            },
+            message: format!("{} ({})", d.message, d.entity),
+            path: d.source.as_str().to_string(),
+            line: d.line,
+            origin: None,
+        });
+    }
+    LintReport::new(findings, strict || config.lint.strict)
 }

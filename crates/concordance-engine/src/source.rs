@@ -3,11 +3,14 @@
 //! arbitrary filesystem paths.
 
 use concordance_core::graph::NodeRef;
+use concordance_core::virtual_doc::{Origin, VirtualDoc};
 use concordance_core::{ContentHash, RepoPath};
 use concordance_graph::Model;
 use concordance_reconcile::FsProbe;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -33,17 +36,31 @@ pub fn read_text(root: &Path, path: &RepoPath) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// Read a document as text: the rendered text of a virtual document, else the file.
+pub fn read_doc_text(model: &Model, root: &Path, path: &RepoPath) -> std::io::Result<String> {
+    match model.virtual_docs.get(path) {
+        Some(v) => Ok(v.text.clone()),
+        None => read_text(root, path),
+    }
+}
+
+/// Existence and line probes over the repository, where a virtual document exists and has
+/// lines like a file.
 pub struct RepoFs {
     pub root: PathBuf,
+    pub virtuals: BTreeMap<RepoPath, Arc<VirtualDoc>>,
 }
 
 impl FsProbe for RepoFs {
     fn exists(&self, path: &RepoPath) -> bool {
-        path.to_fs(&self.root).exists()
+        self.virtuals.contains_key(path) || path.to_fs(&self.root).exists()
     }
 
     fn find_line(&self, path: &RepoPath, pred: &dyn Fn(&str) -> bool) -> Option<u32> {
-        let text = read_text(&self.root, path).ok()?;
+        let text = match self.virtuals.get(path) {
+            Some(v) => v.text.clone(),
+            None => read_text(&self.root, path).ok()?,
+        };
         text.lines().position(pred).map(|i| i as u32 + 1)
     }
 }
@@ -62,6 +79,10 @@ pub struct SourceExcerpt {
     pub start_line: u32,
     pub lines: Vec<String>,
     pub highlight: Option<Highlight>,
+    /// For a virtual document: where the first highlighted line was rendered from in its source
+    /// file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
     /// False when the file changed on disk since it was indexed: lines may not match
     /// the recorded ranges.
     pub current: bool,
@@ -91,7 +112,7 @@ pub fn excerpt(
     context: u32,
 ) -> Option<SourceExcerpt> {
     let (hash, node, language) = indexed(model, path)?;
-    let text = read_text(root, path).ok()?;
+    let text = read_doc_text(model, root, path).ok()?;
     let current = ContentHash::of_str(&text) == hash;
     let all: Vec<&str> = text.lines().collect();
     let total = all.len() as u32;
@@ -115,6 +136,7 @@ pub fn excerpt(
             start_line: start,
             end_line: end,
         }),
+        origin: model.origin_of(path, start),
         current,
     })
 }

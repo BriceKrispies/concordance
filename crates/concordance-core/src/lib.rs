@@ -23,6 +23,7 @@ pub mod ids;
 pub mod lang;
 pub mod location;
 pub mod testrun;
+pub mod virtual_doc;
 
 pub use ids::*;
 pub use location::*;

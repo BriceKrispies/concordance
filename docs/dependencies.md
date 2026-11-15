@@ -29,4 +29,7 @@ Things deliberately done without a crate:
 - **Debouncing.** A small thread replaces `notify-debouncer-*`.
 - **Event bus.** A ring buffer plus `tokio::sync::watch` replaces broadcast crates.
 - **Temp dirs and HTTP clients in tests.** These are written with std and tokio.
+- **JSONC.** `concordance-exegra` blanks out comments and trailing commas (keeping every byte on its
+  line) and lets `serde_json` parse the rest; a small walk over the cleaned text finds the line of each
+  entity. No JSONC crate is needed.
 - **Levenshtein and Jaccard.** Both are a few lines.

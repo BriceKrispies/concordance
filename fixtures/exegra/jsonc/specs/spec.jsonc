@@ -1,0 +1,53 @@
+{
+  // The structured form of ../../markdown: the same specification as one Exegra file.
+  // `raw` is the Markdown an entity was once imported from. Concordance never reads it: the
+  // stale `raw` of goal g-1 below must change nothing.
+  "exegra": "0.1",
+
+  "documents": [
+    {"id":"doc-wp","path":"docs/whitepaper.md","title":"Tool","role":"whitepaper"},
+    {"id":"doc-index","path":"docs/spec/index.md","title":"Specification","role":"index"},
+    {"id":"doc-cli","path":"docs/spec/cli.md","title":"Build","role":"requirements"},
+    {"id":"doc-lib","path":"docs/spec/lib.md","title":"Library","role":"requirements"},
+    {"id":"doc-flows","path":"cases/flows.md","title":"Flows","role":"cases"},
+  ],
+
+  "sections": [
+    {"id":"sec-wp-1","title":"Tool","level":1,"document":"doc-wp","order":1,"body":"\n"},
+    {"id":"sec-wp-2","title":"Goals","level":2,"document":"doc-wp","parent":"sec-wp-1","order":2,"body":"\n{{entity:g-1}}\n{{entity:g-2}}\n\n"},
+    {"id":"sec-wp-3","title":"Non-goals","level":2,"document":"doc-wp","parent":"sec-wp-1","order":3,"body":"\n{{entity:ng-1}}\n\n"},
+    {"id":"sec-wp-4","title":"Boundaries","level":2,"document":"doc-wp","parent":"sec-wp-1","order":4,"body":"\n{{entity:b-1}}\n{{entity:b-2}}\n"},
+    {"id":"sec-index-1","title":"Specification","level":1,"document":"doc-index","order":1,"body":"\n| File | Prefix | Covers |\n|---|---|---|\n| [cli.md](cli.md) | CLI | The build command |\n| [lib.md](lib.md) | LIB | The library |\n"},
+    {"id":"sec-cli-1","title":"Build","level":1,"document":"doc-cli","order":1,"body":"\nThe build command reads a manifest.\n\n"},
+    {"id":"sec-cli-2","title":"Requirements","level":2,"document":"doc-cli","parent":"sec-cli-1","order":2,"body":"\n{{entity:cli-001}}\n\n{{entity:cli-002}}\n\n{{entity:cli-003}}\n\n{{entity:cli-004}}\n"},
+    {"id":"sec-lib-1","title":"Library","level":1,"document":"doc-lib","order":1,"body":"\n"},
+    {"id":"sec-lib-2","title":"Requirements","level":2,"document":"doc-lib","parent":"sec-lib-1","order":2,"body":"\n{{entity:lib-001}}\n\n{{entity:lib-002}}\n"},
+  ],
+
+  "caseTables": [
+    {"id":"cases-flows","path":"cases/flows.md","title":"Flows","document":"doc-flows","body":"# Flows\n\n## Cases\n\n| Case | Manifest |\n|---|---|\n| empty | none |\n| two | a b |\n"},
+  ],
+
+  "goals": [
+    {"id":"g-1","ref":"G-1","statement":"A user can build a project from its manifest.","raw":"- **G-1** an old wording of the goal."},
+    {"id":"g-2","ref":"G-2","statement":"A failed build leaves no partial output."},
+  ],
+
+  "nonGoals": [
+    {"id":"ng-1","ref":"NG-1","statement":"Remote builds."},
+  ],
+
+  "boundaries": [
+    {"id":"b-1","ref":"B-1","name":"`tool build`","interfaceKind":"CLI","usedBy":"users"},
+    {"id":"b-2","ref":"B-2","name":"`tool_lib::build_project`","interfaceKind":"API","usedBy":"embedders"},
+  ],
+
+  "claims": [
+    {"id":"cli-001","kind":"requirement","ref":"CLI-001","statement":"`tool build` SHALL exit with status 2 and write nothing when the manifest names a missing file.","rationale":"A partial build that looks successful is worse than none.","evaluate":{"method":"scenario"},"lifecycle":"active","boundary":"b-1","boundaryDetail":"`tool build`","traces":["g-2"],"inSection":"sec-cli-2"},
+    {"id":"cli-002","kind":"requirement","ref":"CLI-002","statement":"`tool build` SHALL print the name of each built target and SHALL exit with status 0.","evaluate":{"method":"example"},"lifecycle":"active","boundary":"b-1","boundaryDetail":"`tool build`","traces":["g-1"],"inSection":"sec-cli-2"},
+    {"id":"cli-003","kind":"requirement","ref":"CLI-003","statement":"`tool build` SHALL report a failed manifest correctly.","evaluate":{"method":"example"},"lifecycle":"active","boundary":"b-1","boundaryDetail":"`tool build`","traces":["g-2"],"inSection":"sec-cli-2"},
+    {"id":"cli-004","kind":"requirement","ref":"CLI-004","statement":"`tool build` SHALL print a progress bar.","rationale":"Replaced by CLI-002.","evaluate":{"method":"example"},"lifecycle":"retired","boundary":"b-1","boundaryDetail":"`tool build`","traces":["g-1"],"inSection":"sec-cli-2"},
+    {"id":"lib-001","kind":"requirement","ref":"LIB-001","statement":"`tool_lib::build_project` SHALL return the targets a manifest lists, in order.","evaluate":{"method":"conformance"},"lifecycle":"active","boundary":"b-2","boundaryDetail":"`tool_lib::build_project`","traces":["g-1"],"milestone":1,"cases":["cases-flows"],"inSection":"sec-lib-2"},
+    {"id":"lib-002","kind":"requirement","ref":"LIB-002","statement":"`tool_lib::build_project` SHALL return no target for an empty manifest.","evaluate":{"method":"example"},"lifecycle":"active","boundary":"b-2","boundaryDetail":"`tool_lib::build_project`","traces":["g-1"],"milestone":1,"seam":1,"inSection":"sec-lib-2"},
+  ],
+}

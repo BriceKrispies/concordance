@@ -1,0 +1,3 @@
+running 1 test
+test tests::empty_manifest_has_no_targets ... ok
+test result: ok.

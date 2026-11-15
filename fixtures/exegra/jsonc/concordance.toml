@@ -1,0 +1,9 @@
+spec_roots = ["specs/spec.jsonc"]
+src_roots = ["src"]
+test_results = ["results/passed.txt"]
+
+[authority]
+normative = ["docs/spec/**"]
+
+[lint]
+whitepaper = "docs/whitepaper.md"

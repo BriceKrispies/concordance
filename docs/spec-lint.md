@@ -11,21 +11,42 @@ concordance lint [common] [--strict] [--json]
 Exit status: 0 when there is no error, 1 when there is at least one error, 2 and 3 as for the other
 commands. `--strict` (or `[lint] strict = true`) turns every warning into an error. `--json` prints
 one object: `strict`, `errors`, `warnings` and `findings[]`, each with `rule`, `severity`
-(`error` or `warning`), `message`, `path` (repository-relative) and `line` (1-based). Human output is
-one `path:line: error[R1] message` line per finding.
+(`error` or `warning`), `message`, `path` (repository-relative), `line` (1-based) and, only for a
+finding in a virtual document, `origin` (`file`, `line`, `entity`: where that line was rendered from in
+the structured source). Human output is one `path:line: error[R1] message` line per finding; in a virtual
+document it is `path:line (source.jsonc:1320 krn-002): error[R1] message`.
 
 ## What is linted
 
 - **Specification files:** the Markdown files under the spec roots whose authority is `normative`
   (set `[authority] normative = ["docs/spec/**"]`). Design documents are not linted. `[lint] spec`
   restricts this to the normative files matching its globs (repository-relative; default: all of them).
-  When no file is left the lint reports rule `R0`.
+  When no file is left the lint reports rule `R0`. Virtual documents of a structured source count as
+  files here.
 - **White paper:** `[lint] whitepaper`, default `docs/whitepaper.md`. Its IDs `G-n`, `NG-n`, `B-n`, `K-n` (constraints),
   `C-n`, `D-n`, `Q-n` are bold openers (`- **G-1** ...`) or first table cells (`| B-1 | ... |`).
   Code fences and HTML comments are skipped. A missing white paper is one `R5` finding.
 - **Spec index:** the shallowest normative `index.md`. Its table (columns `File` and `Prefix`) says
   which ID prefixes each file owns.
 - **Code:** the indexed source roots, for rule R3.
+
+## Structured sources
+
+The lint reads the Markdown of a specification kept in an Exegra JSONC file (see
+[requirements.md](requirements.md#structured-sources-exegra-jsonc)) from the virtual documents the
+engine rendered. Rules, `[authority]` globs, `[lint] whitepaper` and `[lint] spec` apply to a virtual
+document under its `path` exactly as to a file, because the rendered text is in the formats below:
+
+- a requirement is `**<ref>** <statement>` followed by `Status:`, `Verify:`, `Cases:`, `Boundary:`,
+  `Traces:`, `Depends:`, `Rationale:`, `Milestone:`, `Seam:` bullets for the properties present;
+- goals, non-goals, constraints, decisions and open questions are `- **G-1** ...` bullets, and boundaries
+  and components are table rows `| B-1 | ... |` (so the white-paper reader finds them);
+- a `Cases:` file that is a virtual document (a case table of the source) is read from its rendered
+  text, never from the file system;
+- a finding in a virtual document carries its `origin`, and problems in the source itself (an unknown
+  marker, a `casesPath` that matched no case table, ...) are reported as rule `R0` at the source file:
+  an error for a missing or contradictory entity, a warning for a reference or path that does not
+  resolve.
 
 ## A requirement
 
@@ -47,6 +68,7 @@ is only checked by R8.
 
 | Rule | Severity | Reports |
 |---|---|---|
+| R0 sources | error / warning | no normative specification file found; a problem in a structured source (see above), reported at the source file |
 | R1 atomic | error | no SHALL/SHALL NOT/MUST in the statement; more than one; a semicolon; "and" joining two modal clauses (one finding per statement, naming every reason) |
 | R2 vague | error | a banned word in the statement: correctly, properly, efficient(ly), robust(ly), appropriate(ly), as expected, user-friendly, fast, secure(ly) |
 | R3 internals | error / warning | see below |

@@ -10,6 +10,7 @@ claims more than their evidence supports).
 ```
 concordance-core        domain model: ids, claims, symbols, edges, evidence, findings, events, config
 concordance-markdown    pulldown-cmark -> DocumentIndex (sections, claims, references, authority)
+concordance-exegra      Exegra JSONC specification source -> one Markdown text per document, rendered from the entities' properties, with the JSONC line of every rendered line
 concordance-rust        Rust language plugin: syn + cargo metadata -> SourceIndex
 concordance-typescript  TypeScript/JavaScript language plugin: oxc + package.json -> SourceIndex
 concordance-csharp      C# language plugin: tree-sitter + .csproj/.sln -> SourceIndex
@@ -50,13 +51,23 @@ Dependencies point downward only. `core` knows no HTTP, SQL, Markdown AST or `sy
 ## Data flow
 
 ```
- .md ──markdown──> DocumentIndex ─┐                      ┌─> Evidence (structural)
-                                  ├─> engine (apply) ─> Model ─> reconcile ─┤
- .rs ──rust──────> SourceIndex ───┘        │                     │          └─> Findings
-                                           │                     └─> semantic jobs ─> Evidence (semantic/adversarial)
-                                           └─> EventBus (typed events) ─> SSE / JSONL / CLI
-                                           └─> Store (SQLite delta per batch)
+ .md ─────────────────────markdown──> DocumentIndex ─┐                    ┌─> Evidence (structural)
+ .jsonc ─exegra─> virtual .md ──markdown──> DocumentIndex ─┤                    │
+                                                           ├─> engine (apply) ─> Model ─> reconcile ─┤
+ .rs ──rust──────────────────────────────> SourceIndex ────┘        │                  │            └─> Findings
+                                                                    │                  └─> semantic jobs ─> Evidence (semantic/adversarial)
+                                                                    └─> EventBus (typed events) ─> SSE / JSONL / CLI
+                                                                    └─> Store (SQLite delta per batch)
 ```
+
+A structured specification source (an Exegra JSONC file, see [requirements.md](requirements.md#structured-sources-exegra-jsonc))
+is not a document of its own. The engine renders each of its documents to Markdown from the entities'
+properties, and the Markdown front end indexes that text under the document's `path` exactly as
+if it were a file. The rendered documents (text, plus the JSONC line each line came from) live in
+the model as `virtual_docs`; they are rebuilt on every scan and never persisted. Everything that
+reads a document's text (lint, `Cases:` files, link checks, excerpts, semantic context) asks the
+model for the virtual text first and the file system second. The only analysis that knows about
+sources is the origin lookup that decorates output locations.
 
 ## Identity
 
@@ -76,6 +87,14 @@ A change batch (initial scan, watcher batch, manual scan) works in these steps:
 
 1. **Discover and hash.** Files whose blake3 hash and configured authority are unchanged are skipped.
    A change in the extractor or rules version (persisted in the database) forces a full re-derivation.
+   The version fingerprint includes the structured-source extractor (`concordance_exegra::EXTRACTOR_VERSION`).
+   Structured sources are rendered on every scan (cheap and deterministic). A virtual document is
+   keyed by its `path`, like a file, and hashed by its rendered text, so only the documents whose text
+   changed are re-parsed; a document that no longer renders (removed from the source, or the source
+   deleted) is removed like a deleted file. A path that is both a Markdown file and a virtual document
+   is an error (`SystemError`, and an `R0` lint finding): neither is indexed. A change to a source file
+   (or to a path a virtual document has) in watch mode runs the full discovery pass, which the hash
+   comparison keeps incremental.
 2. **Parse.** Changed files are parsed on the blocking pool with bounded parallelism. Results are applied
    in chunks under the write lock, so indexing events stream while parsing continues.
 3. **Diff.** Each document or file is diffed against its previous version: claims (with identity

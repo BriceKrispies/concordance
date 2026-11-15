@@ -11,6 +11,7 @@ concordance-rust.workspace = true
 concordance-typescript.workspace = true
 concordance-csharp.workspace = true
 concordance-lean.workspace = true
+concordance-exegra.workspace = true
 concordance-graph.workspace = true
 concordance-storage.workspace = true
 concordance-reconcile.workspace = true

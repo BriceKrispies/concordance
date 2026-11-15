@@ -18,11 +18,13 @@ use concordance_core::evidence::Evidence;
 use concordance_core::finding::{Counts, Finding, FindingStatus, FindingSubject};
 use concordance_core::graph::{Edge, NodeRef};
 use concordance_core::testrun::TestRun;
+use concordance_core::virtual_doc::{Origin, SourceDiagnostic, VirtualDoc};
 use concordance_core::{
     ClaimId, ContentHash, DocumentId, EdgeId, EvidenceId, FileId, FindingId, RepoPath, Revision,
     SectionId, SymbolId,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 
 #[derive(Default, Debug, Clone)]
 pub struct Model {
@@ -40,6 +42,11 @@ pub struct Model {
     pub findings: BTreeMap<FindingId, Finding>,
     /// Ingested test-run outputs (reloaded from their files; not persisted).
     pub test_runs: Vec<TestRun>,
+    /// Documents rendered from a structured specification source, by the path they would have
+    /// as files (rebuilt on every scan; not persisted).
+    pub virtual_docs: BTreeMap<RepoPath, Arc<VirtualDoc>>,
+    /// Problems found while rendering those sources (not persisted).
+    pub virtual_diagnostics: Vec<SourceDiagnostic>,
     idx: Indexes,
 }
 
@@ -72,6 +79,12 @@ struct Indexes {
 }
 
 impl Model {
+    /// The origin in the source file of `line` (1-based) of `path`, when `path` is a virtual
+    /// document.
+    pub fn origin_of(&self, path: &RepoPath, line: u32) -> Option<Origin> {
+        self.virtual_docs.get(path)?.origin_of(line)
+    }
+
     /// Claims tagged with requirement `id`.
     pub fn claims_of_requirement<'a>(&'a self, id: &str) -> impl Iterator<Item = &'a Claim> + 'a {
         self.idx

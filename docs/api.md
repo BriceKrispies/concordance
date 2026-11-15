@@ -60,13 +60,19 @@ Status = {
 Repository = { seq, root, spec_roots, src_roots, state_dir, crates: [CrateInfo], from_cargo_metadata, warnings, config: Config }
 
 DocumentSummary = { id, path, title, authority: AuthorityAssessment, sections, claims, obligations,
-                    status_counts: { verified, violated, unverified, planned, stale, ambiguous } }
+                    status_counts: { verified, violated, unverified, planned, stale, ambiguous },
+                    source?: path }       // virtual document: the structured source it is rendered from
 DocumentDetail = { seq, document: Document, sections: [Section], claims: [ClaimView], prose_references: [ProseReference] }
 
-ClaimView = { claim: Claim, status: FindingStatus|null, finding: fnd_id|null, document_path }
+ClaimView = { claim: Claim, status: FindingStatus|null, finding: fnd_id|null, document_path,
+              origin?: Origin }
               // status null for informative (non-obligation) claims
 ClaimDetail = { seq, claim: Claim, document: Document, status, finding: Finding|null,
-                edges: [EdgeView], evidence: [Evidence] }
+                edges: [EdgeView], evidence: [Evidence], origin?: Origin }
+Origin = { file: path, line: n, entity: string }
+              // where a line of a virtual document was rendered from in its structured
+              // source file (see requirements.md, "Structured sources"); `line` is the entity's
+              // line in that file. Every `origin` field is absent for ordinary Markdown.
 EdgeView = { edge: Edge, target_label: string|null, target_kind: string|null }
 
 CrateSummary = { name, root_dir, files, symbols, public_api, unconstrained_public_api, modules: [string] }
@@ -76,9 +82,13 @@ SymbolDetail = { seq, symbol: Symbol, file: SourceFile, constrained_by: [{ claim
                  findings: [Finding], children: [SymbolView], excerpt: SourceExcerpt|null }
 
 FindingDetail = { seq, finding: Finding, claims: [ClaimView], symbols: [SymbolView], evidence: [Evidence],
-                  history: [FindingTransition], spec_excerpts: [SourceExcerpt], code_excerpts: [SourceExcerpt] }
+                  history: [FindingTransition], spec_excerpts: [SourceExcerpt], code_excerpts: [SourceExcerpt],
+                  location_origins?: [Origin|null] }   // parallel to finding.locations
 SourceExcerpt = { path, file_id, language: "markdown"|"rust", start_line, lines: [string],
-                  highlight: { start_line, end_line } | null, current: bool }
+                  highlight: { start_line, end_line } | null, origin?: Origin, current: bool }
+                // origin: of the first highlighted line, for a virtual document. Its lines are
+                // those of the rendered text, which is what `Document`, `Claim` and `Section`
+                // ranges refer to.
                 // current=false when the file changed since indexing (lines may not match ranges)
 
 Neighborhood = { seq, center: id, nodes: [{ id, kind, label, detail, status }],
