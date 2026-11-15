@@ -1,7 +1,10 @@
 //! Rendering of one entity into the Markdown form Concordance's front end reads.
 //!
-//! Only properties are read. The `raw` property (the Markdown an entity was imported from) is
-//! never consulted: it is stale as soon as a property is edited.
+//! Only properties are read. A `raw` property (the Markdown an entity was imported from, which
+//! older imports wrote) is never consulted: it is stale as soon as a property is edited.
+//!
+//! Text properties may span several lines (a decision's sub-points, a milestone's paragraphs);
+//! those lines are kept, continuing under a list item's marker.
 
 use crate::{str_of, Diagnostic, DiagnosticKind, Entity};
 use serde_json::Value;
@@ -40,20 +43,46 @@ pub(crate) fn entity(
     match e.list {
         "claims" if str_of(e.value, "kind") == Some("requirement") => requirement(e, ctx, diags),
         "goals" | "nonGoals" | "constraints" | "openQuestions" | "decisions" => item(e, diags),
+        "terms" => term(e, diags),
+        "milestones" => match lines_of(e, "detail") {
+            Some(lines) => Some(Rendered {
+                block: Block::Lines(lines),
+                requirement_ref: None,
+            }),
+            None => paragraph(e, diags),
+        },
         "boundaries" => row(
             e,
             diags,
             "boundaries",
             "| ID | Boundary | Interface | Used by |",
+            None,
             ["name", "interfaceKind", "usedBy"],
         ),
         "components" => row(
             e,
             diags,
             "components",
-            "| ID | Component | Category | Purpose |",
-            ["name", "category", "purpose"],
+            "| ID | Component | Owns | Talks to |",
+            None,
+            ["name", "purpose", "talksTo"],
         ),
+        "releaseStages" => {
+            let first = match (text_of(e, "ref"), text_of(e, "name")) {
+                (Some(r), Some(n)) if r != n => Some(format!("**{r} {n}**")),
+                (_, Some(n)) => Some(format!("**{n}**")),
+                (Some(r), None) => Some(format!("**{r}**")),
+                (None, None) => None,
+            };
+            row(
+                e,
+                diags,
+                "releaseStages",
+                "| Stage | Purpose | Milestones | Exit evidence |",
+                first,
+                ["purpose", "milestones", "exitEvidence"],
+            )
+        }
         _ => paragraph(e, diags),
     }
 }
@@ -65,6 +94,34 @@ pub(crate) fn one_line(s: &str) -> String {
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The lines of a multi-line text property: trailing space trimmed, blank lines inside kept,
+/// leading and trailing blank lines dropped. Indentation (nested list items) is kept.
+fn lines_of(e: &Entity<'_>, key: &str) -> Option<Vec<String>> {
+    let s = str_of(e.value, key)?;
+    let mut lines: Vec<String> = s.split('\n').map(|l| l.trim_end().to_string()).collect();
+    while lines.first().is_some_and(|l| l.is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    (!lines.is_empty()).then_some(lines)
+}
+
+/// `head` followed by the first of `lines`, then the other lines indented by `indent` spaces.
+fn under_head(head: &str, lines: &[String], indent: usize) -> Vec<String> {
+    let pad = " ".repeat(indent);
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| match (i, l.is_empty()) {
+            (0, _) => format!("{head}{l}").trim_end().to_string(),
+            (_, true) => String::new(),
+            _ => format!("{pad}{l}"),
+        })
+        .collect()
 }
 
 fn text_of(e: &Entity<'_>, key: &str) -> Option<String> {
@@ -221,7 +278,9 @@ fn requirement(e: &Entity<'_>, ctx: &Ctx<'_>, diags: &mut Vec<Diagnostic>) -> Op
     })
 }
 
-/// A goal, non-goal, constraint, decision or open question: `- **<ref>** <text>`.
+/// A goal, non-goal, constraint, decision or open question: `- **<ref>** <text>`. Text over
+/// several lines (sub-points, paragraphs) continues indented under the item. A goal's release
+/// stage follows its text as `*(<stage>)*`; a non-goal's horizon leads it as `*<horizon>*`.
 fn item(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
     let Some(r) = text_of(e, "ref") else {
         invalid(
@@ -231,7 +290,7 @@ fn item(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
         );
         return None;
     };
-    let Some(t) = text_of(e, "statement").or_else(|| text_of(e, "title")) else {
+    let Some(mut t) = lines_of(e, "statement").or_else(|| lines_of(e, "title")) else {
         invalid(
             e,
             diags,
@@ -240,24 +299,64 @@ fn item(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
         return None;
     };
     Some(Rendered {
-        block: Block::Lines(vec![format!("- **{r}** {t}")]),
+        block: Block::Lines({
+            if let Some(stage) = text_of(e, "stage").filter(|_| e.list == "goals") {
+                if let Some(last) = t.last_mut() {
+                    *last = format!("{last} *({stage})*");
+                }
+            }
+            let head = match text_of(e, "horizon").filter(|_| e.list == "nonGoals") {
+                Some(h) => format!("- **{r}** *{h}* "),
+                None => format!("- **{r}** "),
+            };
+            under_head(&head, &t, 2)
+        }),
+        requirement_ref: None,
+    })
+}
+
+/// A glossary term: `- **<term>**: <definition>`.
+fn term(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
+    let Some(name) = text_of(e, "term") else {
+        return paragraph(e, diags);
+    };
+    let lines = lines_of(e, "definition").unwrap_or_default();
+    Some(Rendered {
+        block: Block::Lines(if lines.is_empty() {
+            vec![format!("- **{name}**")]
+        } else {
+            under_head(&format!("- **{name}**: "), &lines, 2)
+        }),
         requirement_ref: None,
     })
 }
 
 fn cell(s: &str) -> String {
-    one_line(s).replace('|', "\\|")
+    let mut out = String::new();
+    let mut code = false;
+    for ch in one_line(s).chars() {
+        if ch == '`' {
+            code = !code;
+        }
+        if ch == '|' && !code {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
 }
 
-/// A boundary or component: a table row `| <ref> | <a> | <b> | <c> |`.
+/// A boundary, component or release stage: a table row `| <first> | <a> | <b> | <c> |`, where
+/// `<first>` is `first` or else the entity's `ref`.
 fn row(
     e: &Entity<'_>,
     diags: &mut Vec<Diagnostic>,
     table: &'static str,
     header: &str,
+    first: Option<String>,
     columns: [&str; 3],
 ) -> Option<Rendered> {
-    let Some(r) = text_of(e, "ref") else {
+    let Some(r) = first.or_else(|| text_of(e, "ref")) else {
         invalid(
             e,
             diags,
@@ -286,7 +385,7 @@ fn row(
     })
 }
 
-/// Any other entity: a plain paragraph of its main text properties.
+/// Any other entity: its label and main text properties, each property's lines kept.
 fn paragraph(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
     let label = ["name", "title", "term"].iter().find_map(|k| text_of(e, k));
     let rest: Vec<String> = [
@@ -299,12 +398,13 @@ fn paragraph(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
         "description",
     ]
     .iter()
-    .filter_map(|k| text_of(e, k))
+    .filter_map(|k| lines_of(e, k))
+    .flatten()
     .collect();
-    let text = match (label, rest.is_empty()) {
-        (Some(l), false) => format!("{l}: {}", rest.join(" ")),
-        (Some(l), true) => l,
-        (None, false) => rest.join(" "),
+    let lines = match (label, rest.is_empty()) {
+        (Some(l), false) => under_head(&format!("{l}: "), &rest, 0),
+        (Some(l), true) => vec![l],
+        (None, false) => rest,
         (None, true) => {
             invalid(
                 e,
@@ -315,7 +415,7 @@ fn paragraph(e: &Entity<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
         }
     };
     Some(Rendered {
-        block: Block::Lines(vec![text]),
+        block: Block::Lines(lines),
         requirement_ref: None,
     })
 }

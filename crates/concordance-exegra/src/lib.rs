@@ -498,6 +498,14 @@ impl Builder {
         self.table = None;
     }
 
+    /// Whether the previous line is a table line.
+    fn after_table_line(&self) -> bool {
+        self.out
+            .strip_suffix('\n')
+            .and_then(|o| o.rsplit('\n').next())
+            .is_some_and(|l| l.trim_start().starts_with('|'))
+    }
+
     /// The heading line and the body of one section, with markers rendered.
     fn section(
         &mut self,
@@ -565,7 +573,10 @@ impl Builder {
                             separator,
                             row,
                         } => {
-                            if self.table != Some(table) {
+                            // A header is written only when the row does not continue a table
+                            // already in the document (a rendered one, or one whose header and
+                            // separator lines are text of the section body).
+                            if self.table != Some(table) && !self.after_table_line() {
                                 self.line(&header, id, e.line);
                                 self.line(&separator, id, e.line);
                             }

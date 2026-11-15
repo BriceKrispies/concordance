@@ -19,10 +19,10 @@ const SAMPLE: &str = r##"{
     {"id":"c-1","path":"spec/cases/k.md","document":"d-cases","body":"# Cases\n\n## Cases\n\n| Case |\n"}
   ],
   "goals": [
-    {"id":"g-1","ref":"G-1","statement":"A player can play.","raw":"STALE goal"}
+    {"id":"g-1","ref":"G-1","statement":"A player can play.","stage":"R1","raw":"STALE goal"}
   ],
   "nonGoals": [
-    {"id":"ng-1","ref":"NG-1","statement":"No voice chat."}
+    {"id":"ng-1","ref":"NG-1","statement":"No voice chat.","horizon":"Not at launch."}
   ],
   "boundaries": [
     {"id":"b-1","ref":"B-1","name":"Web app","interfaceKind":"UI","usedBy":"players"},
@@ -41,8 +41,8 @@ const SAMPLE: &str = r##"{
 const WHITEPAPER_TEXT: &str = "\
 # White paper
 
-- **G-1** A player can play.
-- **NG-1** No voice chat.
+- **G-1** A player can play. *(R1)*
+- **NG-1** *Not at launch.* No voice chat.
 
 | ID | Boundary | Interface | Used by |
 |---|---|---|---|
@@ -51,7 +51,7 @@ const WHITEPAPER_TEXT: &str = "\
 
 Glossary
 
-Fence: a token.
+- **Fence**: a token.
 ";
 
 const KERNEL_TEXT: &str = "\
@@ -172,4 +172,31 @@ fn unusable_files_are_errors() {
     ));
     let e = expand("x.jsonc", "{\"a\":1}").unwrap_err();
     assert!(e.to_string().starts_with("x.jsonc: not an Exegra"));
+}
+
+#[test]
+fn a_multi_line_statement_keeps_its_lines_under_the_item() {
+    let src = r#"{"exegra":"0.1",
+"documents":[{"id":"d","path":"wp.md","role":"whitepaper"}],
+"sections":[{"id":"s","title":"Decisions","level":2,"document":"d","order":1,"body":"{{entity:d-1}}\n"}],
+"decisions":[{"id":"d-1","ref":"D-1","title":"Rust","statement":"**Rust.** Decided by the founder.\n- Every component in Rust.\n\n  A nested paragraph.\n- Lean for proofs."}]}"#;
+    let x = expand("spec.jsonc", src).unwrap();
+    assert!(x.diagnostics.is_empty(), "{:?}", x.diagnostics);
+    assert_eq!(
+        doc(&x, "wp.md").text,
+        "## Decisions\n- **D-1** **Rust.** Decided by the founder.\n  - Every component in Rust.\n\n    A nested paragraph.\n  - Lean for proofs.\n"
+    );
+}
+
+#[test]
+fn a_row_under_a_header_in_the_body_gets_no_second_header() {
+    let src = r#"{"exegra":"0.1",
+"documents":[{"id":"d","path":"wp.md","role":"whitepaper"}],
+"sections":[{"id":"s","title":"Topology","level":2,"document":"d","order":1,"body":"| ID | Component | Owns | Talks to |\n|---|---|---|---|\n{{entity:c-1}}\n"}],
+"components":[{"id":"c-1","ref":"C-1","name":"Kernel (`k|x`)","category":"logical","purpose":"Decides | plans","talksTo":"C-2"}]}"#;
+    let x = expand("spec.jsonc", src).unwrap();
+    assert_eq!(
+        doc(&x, "wp.md").text,
+        "## Topology\n| ID | Component | Owns | Talks to |\n|---|---|---|---|\n| C-1 | Kernel (`k|x`) | Decides \\| plans | C-2 |\n"
+    );
 }
