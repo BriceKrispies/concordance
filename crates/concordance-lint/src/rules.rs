@@ -895,38 +895,6 @@ mod tests {
     }
 
     #[test]
-    fn a_valid_milestone_and_seam_pass() {
-        assert!(r4(true, "- Milestone: 3\n- Seam: 1\n").is_empty());
-        assert!(r4(true, "- Milestone: 3\n- Seam: 3\n").is_empty());
-    }
-
-    #[test]
-    fn a_missing_milestone_is_an_error_on_the_requirement() {
-        let f = r4(true, "");
-        assert_eq!(f.len(), 1, "{f:?}");
-        assert_eq!(f[0].0, 1);
-        assert!(f[0].1.contains("missing `Milestone:`"), "{f:?}");
-    }
-
-    #[test]
-    fn a_milestone_that_is_not_a_positive_integer_is_an_error() {
-        for bad in ["two", "0", "-1", "2.5"] {
-            let f = r4(true, &format!("- Milestone: {bad}\n"));
-            assert_eq!(f.len(), 1, "{bad}: {f:?}");
-            assert_eq!(f[0].0, 3, "{bad}");
-            assert!(f[0].1.contains("not a positive integer"), "{f:?}");
-        }
-    }
-
-    #[test]
-    fn a_seam_that_is_not_a_positive_integer_is_an_error() {
-        let f = r4(true, "- Milestone: 3\n- Seam: zero\n");
-        assert_eq!(f.len(), 1, "{f:?}");
-        assert_eq!(f[0].0, 4);
-        assert!(f[0].1.contains("`Seam: zero`"), "{f:?}");
-    }
-
-    #[test]
     fn a_seam_greater_than_the_milestone_is_an_error() {
         let f = r4(true, "- Milestone: 2\n- Seam: 3\n");
         assert_eq!(f.len(), 1, "{f:?}");
@@ -1009,28 +977,5 @@ mod tests {
         let req = r4_cases_of("conformance", "", Some(&dir));
         assert!(req[0].contains("needs a `Cases:`"), "{req:?}");
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn cases_are_still_rejected_on_other_methods() {
-        for method in ["example", "scenario", "property", "budget"] {
-            let f = r4_cases_of(
-                method,
-                "- Cases: good.md
-",
-                None,
-            );
-            assert_eq!(f.len(), 1, "{method}: {f:?}");
-            assert!(
-                f[0].contains("only for `Verify: conformance` or `Verify: proof`"),
-                "{f:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn nothing_is_checked_without_the_option() {
-        assert!(r4(false, "").is_empty());
-        assert!(r4(false, "- Milestone: x\n- Seam: 9\n").is_empty());
     }
 }

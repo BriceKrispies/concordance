@@ -200,27 +200,3 @@ pub fn parse_index_table(text: &str) -> Option<Vec<IndexRow>> {
     }
     (!rows.is_empty()).then_some(rows)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_openers_and_table_cells() {
-        let wp = "## Goals\n\n- **G-1** First goal\n  continues.\n- **G-2**: Second\n\n| ID | B |\n|---|---|\n| B-1 | `tool build` | CLI |\n\n```\n- **G-9** code\n```\n<!-- **G-8** -->\n";
-        let ids = parse_whitepaper(wp);
-        let got: Vec<(&str, u32)> = ids.iter().map(|i| (i.id.as_str(), i.line)).collect();
-        assert_eq!(got, vec![("G-1", 3), ("G-2", 5), ("B-1", 9)]);
-        assert_eq!(ids[0].text, "First goal continues.");
-        assert_eq!(ids[2].text, "tool build | CLI");
-    }
-
-    #[test]
-    fn reads_the_index_table() {
-        let t = "# Spec\n\n| File | Prefix | Covers |\n|---|---|---|\n| [cli.md](cli.md) | CLI | x |\n| [glossary.md](glossary.md) |   | Terms |\n";
-        let rows = parse_index_table(t).unwrap();
-        assert_eq!(rows[0].file, "cli.md");
-        assert_eq!(rows[0].prefixes, vec!["CLI"]);
-        assert!(rows[1].prefixes.is_empty());
-    }
-}

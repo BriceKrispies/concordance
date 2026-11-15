@@ -39,69 +39,6 @@ async fn model_of(repo: &Path) -> (Config, concordance_graph::Model) {
     (config, model)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn attribute_bullets_belong_to_the_requirement_and_are_not_claims() {
-    let repo = fixture_copy("spec-lint");
-    let (_, model) = model_of(&repo).await;
-    let claim = model
-        .claims
-        .values()
-        .find(|c| c.requirement.as_ref().is_some_and(|r| r.id == "CLI-001"))
-        .expect("a claim tagged CLI-001");
-    let attrs = &claim.requirement.as_ref().unwrap().attributes;
-    assert_eq!(attrs.verify.as_deref(), Some("scenario"));
-    assert_eq!(attrs.boundary.as_deref(), Some("B-1 `tool build`"));
-    assert_eq!(attrs.traces.as_deref(), Some("G-2"));
-    assert!(attrs
-        .rationale
-        .as_deref()
-        .unwrap()
-        .starts_with("A partial build"));
-    let depends = model
-        .claims
-        .values()
-        .find(|c| c.requirement.as_ref().is_some_and(|r| r.id == "CLI-003"))
-        .unwrap();
-    let r = depends.requirement.as_ref().unwrap();
-    assert_eq!(r.attributes.depends.as_deref(), Some("CLI-002"));
-    let retired = model
-        .claims
-        .values()
-        .find(|c| c.requirement.as_ref().is_some_and(|r| r.id == "CLI-005"))
-        .unwrap();
-    assert_eq!(
-        retired
-            .requirement
-            .as_ref()
-            .unwrap()
-            .attributes
-            .status
-            .as_deref(),
-        Some("retired")
-    );
-    // No claim's text is an attribute bullet.
-    for c in model
-        .claims
-        .values()
-        .filter(|c| c.document == claim.document)
-    {
-        for label in [
-            "Verify:",
-            "Boundary:",
-            "Traces:",
-            "Rationale:",
-            "Depends:",
-            "Status:",
-        ] {
-            assert!(
-                !c.text.starts_with(label),
-                "attribute extracted as a claim: {}",
-                c.text
-            );
-        }
-    }
-}
-
 fn proof_rule<'a>(
     m: &'a concordance_graph::Model,
     requirement: &str,

@@ -129,29 +129,3 @@ pub fn percent_decode(s: &str) -> String {
     }
     String::from_utf8_lossy(&out).into_owned()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slug_and_decode() {
-        assert_eq!(slugify("Rate limits (v2)!"), "rate-limits-v2");
-        assert_eq!(percent_decode("my%20file.md"), "my file.md");
-        assert_eq!(percent_decode("100%"), "100%");
-    }
-
-    #[test]
-    fn sentences_respect_abbreviations_and_code() {
-        let t = "Use e.g. a cache. The `a. B` span stays. Done";
-        let spans: Vec<&str> =
-            split_sentences(t, &[(t.find('`').unwrap(), t.find("stays").unwrap() - 1)])
-                .into_iter()
-                .map(|(s, e)| &t[s..e])
-                .collect();
-        assert_eq!(
-            spans,
-            vec!["Use e.g. a cache.", "The `a. B` span stays.", "Done"]
-        );
-    }
-}

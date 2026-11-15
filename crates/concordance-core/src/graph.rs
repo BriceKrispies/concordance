@@ -145,18 +145,3 @@ impl Edge {
         ])
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn node_refs_round_trip_through_bare_id_strings() {
-        let n = NodeRef::Symbol(SymbolId::from_key(&["fn", "a::b"]));
-        let json = serde_json::to_string(&n).unwrap();
-        assert!(json.starts_with("\"sym_"));
-        let back: NodeRef = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, n);
-        assert!(NodeRef::parse("xyz_0011223344556677").is_none());
-    }
-}

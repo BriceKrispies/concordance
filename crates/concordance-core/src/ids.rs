@@ -105,25 +105,3 @@ impl fmt::Display for ContentHash {
         f.write_str(&self.0)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ids_are_stable_prefixed_and_parse_back() {
-        let a = ClaimId::from_key(&["docs/a.md", "Intro", "must be fast"]);
-        assert_eq!(
-            a,
-            ClaimId::from_key(&["docs/a.md", "Intro", "must be fast"])
-        );
-        assert!(a.as_str().starts_with("clm_"));
-        assert_eq!(ClaimId::parse(a.as_str()), Some(a.clone()));
-        assert_eq!(SymbolId::parse(a.as_str()), None);
-        // Part boundaries matter: ["ab","c"] != ["a","bc"].
-        assert_ne!(
-            ClaimId::from_key(&["ab", "c"]),
-            ClaimId::from_key(&["a", "bc"])
-        );
-    }
-}

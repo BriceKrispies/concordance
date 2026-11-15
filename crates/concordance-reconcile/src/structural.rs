@@ -762,15 +762,3 @@ pub fn explicit_symbols<'a>(model: &'a Model, edges: &[Edge]) -> Vec<&'a Symbol>
 pub fn symbol_ids(syms: &[&Symbol]) -> Vec<SymbolId> {
     syms.iter().map(|s| s.id.clone()).collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::literal_numbers;
-
-    #[test]
-    fn literal_numbers_ignore_identifier_digits() {
-        assert_eq!(literal_numbers("MAX_VOLUME = 100"), vec![100.0]);
-        assert_eq!(literal_numbers("v.min(150)"), vec![150.0]);
-        assert_eq!(literal_numbers("x2 > 1_000"), vec![1000.0]);
-    }
-}

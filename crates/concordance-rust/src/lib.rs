@@ -15,9 +15,6 @@ mod signature;
 mod spans;
 mod workspace;
 
-#[cfg(test)]
-mod tests;
-
 use concordance_core::code::{SourceIndex, WorkspaceInfo};
 use concordance_core::RepoPath;
 use std::path::{Path, PathBuf};

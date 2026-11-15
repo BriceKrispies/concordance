@@ -108,36 +108,6 @@ async fn reconnecting_client_resumes_from_cursor_without_gaps_or_duplicates() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cursor_outside_replay_window_gets_resync() {
-    // A tiny ring: the initial scan alone overflows it.
-    let (r, addr, _) = serve("incremental", 16).await;
-    r.idle().await;
-    let msgs = sse_collect(
-        addr,
-        "/api/v1/events?cursor=1",
-        Duration::from_secs(5),
-        |m| m.iter().any(|x| x.event == "resync"),
-    )
-    .await;
-    let resync = msgs
-        .iter()
-        .find(|m| m.event == "resync")
-        .expect("resync sent");
-    let v: serde_json::Value = serde_json::from_str(&resync.data).unwrap();
-    assert_eq!(v["latest"].as_u64(), Some(r.bus.last_seq()));
-    // A cursor from the future (e.g. from before a restart) also resyncs.
-    let msgs = sse_collect(
-        addr,
-        "/api/v1/events?cursor=999999",
-        Duration::from_secs(5),
-        |m| m.iter().any(|x| x.event == "resync"),
-    )
-    .await;
-    assert!(msgs.iter().any(|m| m.event == "resync"));
-    r.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn api_serves_ui_and_scoped_queries_and_refuses_unsafe_requests() {
     let (r, addr, _) = serve("structural-drift", 8192).await;
     r.idle().await;

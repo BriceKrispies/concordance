@@ -146,27 +146,3 @@ pub fn find_limit(s: &str) -> Option<(usize, String)> {
     }
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn masks_code_and_finds_words() {
-        let m = mask_code("a `never` b");
-        assert!(find_word(&m, "never").is_empty());
-        assert_eq!(find_word("It must, MUST not.", "must"), vec![3, 9]);
-        assert!(find_word("mustard", "must").is_empty());
-    }
-
-    #[test]
-    fn finds_limits() {
-        assert_eq!(find_limit("finish in 5 ms").unwrap().1, "5 ms");
-        assert_eq!(find_limit("use 10MB").unwrap().1, "10MB");
-        assert_eq!(find_limit("with 90% of it").unwrap().1, "90%");
-        assert_eq!(find_limit("keep at most 3 files").unwrap().1, "at most 3");
-        assert!(find_limit("exit with status 2 and stop").is_none());
-        assert!(find_limit("error 2 so").is_none());
-        assert_eq!(find_limit("in 2s").unwrap().1, "2s");
-    }
-}

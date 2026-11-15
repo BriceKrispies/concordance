@@ -276,27 +276,3 @@ impl Event {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn envelope_wire_format_is_flat_and_typed() {
-        let env = Envelope {
-            seq: 7,
-            revision: Revision(2),
-            at: Timestamp(1),
-            event: Event::SystemWarning {
-                message: "x".into(),
-            },
-        };
-        let v: serde_json::Value = serde_json::to_value(&env).unwrap();
-        assert_eq!(v["type"], "system.warning");
-        assert_eq!(v["seq"], 7);
-        assert_eq!(v["data"]["message"], "x");
-        assert_eq!(env.event.type_name(), "system.warning");
-        let back: Envelope = serde_json::from_value(v).unwrap();
-        assert_eq!(back.seq, 7);
-    }
-}

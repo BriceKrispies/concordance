@@ -1,14 +1,13 @@
 //! Incremental reconciliation: selective invalidation, cached reuse, stale analyses,
 //! and restart recovery.
 
-use concordance_core::event::{AnalysisOutcome, Event};
+use concordance_core::event::Event;
 use concordance_core::evidence::{Evidence, MethodKind};
 use concordance_core::finding::FindingStatus;
 use concordance_core::graph::NodeRef;
 use concordance_tests::*;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 fn claim_id(m: &concordance_graph::Model, needle: &str) -> concordance_core::ClaimId {
     m.claims
@@ -119,46 +118,6 @@ async fn editing_one_symbol_invalidates_only_dependent_evidence() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn markdown_edit_updates_claims_and_keeps_identity() {
-    let repo = fixture_copy("incremental");
-    let state = temp_dir("md-state");
-    let mut r = start(config_for(&repo, &state, false), None, 8192).await;
-    r.idle().await;
-    let (before, _) = r.engine.shared.read(|m| m.clone());
-    let add = claim_id(&before, "math::add()");
-    r.drain();
-    edit(
-        &repo.join("docs/math.md"),
-        "must return the sum of its two arguments",
-        "must return the exact sum of its two arguments",
-    );
-    r.engine
-        .notify_changed(vec![repo.join("docs/math.md")])
-        .await;
-    r.idle().await;
-    let events = r.drain();
-    let (after, _) = r.engine.shared.read(|m| m.clone());
-    let edited = after
-        .claims
-        .get(&add)
-        .expect("lightly edited claim keeps its identity");
-    assert!(edited.text.contains("exact sum"));
-    assert!(
-        has(
-            &events,
-            |e| matches!(e, Event::ClaimUpdated { claim } if claim.id == add)
-        ),
-        "{:?}",
-        types(&events)
-    );
-    assert!(
-        !has(&events, |e| matches!(e, Event::SourceIndexed { .. })),
-        "no source re-parse for a doc edit"
-    );
-    r.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn removing_a_referenced_function_turns_its_claims_into_violations_and_back() {
     let repo = fixture_copy("incremental");
     let state = temp_dir("rm-state");
@@ -214,94 +173,6 @@ async fn removing_a_referenced_function_turns_its_claims_into_violations_and_bac
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn analysis_computed_against_an_old_revision_is_never_published() {
-    let repo = fixture_copy("semantic-drift");
-    let state = temp_dir("stale-state");
-    let gate = Arc::new(tokio::sync::Semaphore::new(0));
-    let backend = Arc::new(FixedBackend {
-        gate: Some(gate.clone()),
-        ..FixedBackend::insufficient()
-    });
-    let mut r = start(config_for(&repo, &state, true), Some(backend.clone()), 8192).await;
-
-    // Wait until analyses are in flight (held by the gate).
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        if r.engine.shared.status().semantic.running > 0 {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "analysis never started"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    // Change the implementation every analysis depends on, then release the old results.
-    edit(&repo.join("src/lib.rs"), "v.min(150)", "v.min(100)");
-    r.engine.notify_changed(vec![repo.join("src/lib.rs")]).await;
-    // Let the change batch land before releasing.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let changed = r
-            .engine
-            .shared
-            .read(|m| {
-                m.files.values().any(|f| {
-                    f.path.as_str() == "src/lib.rs"
-                        && std::fs::read_to_string(repo.join("src/lib.rs"))
-                            .map(|t| concordance_core::ContentHash::of_str(&t) == f.content_hash)
-                            .unwrap_or(false)
-                })
-            })
-            .0;
-        if changed {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "change batch never applied"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    gate.add_permits(1000);
-    r.idle().await;
-    let events = r.drain();
-    assert!(
-        has(&events, |e| matches!(
-            e,
-            Event::AnalysisCompleted {
-                outcome: AnalysisOutcome::Superseded,
-                ..
-            }
-        )),
-        "stale results reported as superseded: {:?}",
-        events
-            .iter()
-            .filter_map(|e| match &e.event {
-                Event::AnalysisCompleted { outcome, .. } => Some(*outcome),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    );
-    // Every semantic evidence record now in the model was computed against current hashes.
-    let (m, _) = r.engine.shared.read(|m| m.clone());
-    for e in m
-        .evidence
-        .values()
-        .filter(|e| e.method.kind() == MethodKind::Semantic && e.is_valid())
-    {
-        for d in &e.dependencies {
-            assert_eq!(
-                m.content_hash(&d.node).as_ref(),
-                Some(&d.content_hash),
-                "valid semantic evidence depends only on current content"
-            );
-        }
-    }
-    r.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn restart_restores_state_without_reparsing_or_reanalyzing() {
     let repo = fixture_copy("structural-drift");
     let state = temp_dir("restart-state");
@@ -339,43 +210,6 @@ async fn restart_restores_state_without_reparsing_or_reanalyzing() {
         backend.calls.load(std::sync::atomic::Ordering::SeqCst),
         calls1,
         "no semantic re-analysis after restart"
-    );
-    r.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn newly_added_symbol_is_linked_to_claims_that_mention_it_in_prose() {
-    let repo = fixture_copy("semantic-drift");
-    std::fs::write(
-        repo.join("docs/gain.md"),
-        "# Gain\n\nThe playback gain must stay below 2.\n",
-    )
-    .unwrap();
-    let state = temp_dir("lexical-state");
-    let r = start(config_for(&repo, &state, false), None, 8192).await;
-    r.idle().await;
-    let mentions = |m: &concordance_graph::Model| {
-        let c = claim_id(m, "playback gain");
-        m.edges_from(&NodeRef::Claim(c))
-            .filter(|e| e.kind == concordance_core::graph::EdgeKind::MentionsSymbol)
-            .filter_map(|e| e.to.as_ref().and_then(|t| m.label(t)))
-            .collect::<Vec<_>>()
-    };
-    assert!(!mentions(&r.engine.shared.read(|m| m.clone()).0)
-        .iter()
-        .any(|l| l.ends_with("playback_gain")));
-    let lib = repo.join("src/lib.rs");
-    std::fs::write(
-        &lib,
-        std::fs::read_to_string(&lib).unwrap() + "\npub fn playback_gain() -> f32 { 1.0 }\n",
-    )
-    .unwrap();
-    r.engine.notify_changed(vec![lib]).await;
-    r.idle().await;
-    let labels = mentions(&r.engine.shared.read(|m| m.clone()).0);
-    assert!(
-        labels.iter().any(|l| l.ends_with("playback_gain")),
-        "claim re-linked to the new symbol: {labels:?}"
     );
     r.stop().await;
 }

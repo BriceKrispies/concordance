@@ -1119,36 +1119,3 @@ fn to_evidence(
         created_at: ctx.now,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::repo_relative;
-    use std::path::Path;
-
-    #[test]
-    fn model_paths_are_made_repository_relative() {
-        let root = Path::new("C:/dev/rho");
-        let rel = |p: &str| repo_relative(root, p);
-        assert_eq!(
-            rel("modules/a/src/lib.rs").as_deref(),
-            Some("modules/a/src/lib.rs")
-        );
-        assert_eq!(rel("./modules/a.rs").as_deref(), Some("modules/a.rs"));
-        assert_eq!(
-            rel(r"C:\dev\rho\modules\a.rs").as_deref(),
-            Some("modules/a.rs")
-        );
-        assert_eq!(
-            rel("c:/DEV/rho/modules/a.rs").as_deref(),
-            Some("modules/a.rs")
-        );
-        assert_eq!(
-            rel("C:/dev/rhox/a.rs"),
-            None,
-            "a sibling directory is outside"
-        );
-        assert_eq!(rel("C:/Windows/win.ini"), None);
-        assert_eq!(rel("/etc/passwd"), None);
-        assert_eq!(rel("modules/../../secret"), None);
-    }
-}

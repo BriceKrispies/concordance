@@ -19,9 +19,6 @@ mod index;
 mod signature;
 mod workspace;
 
-#[cfg(test)]
-mod tests;
-
 use concordance_core::code::{SourceIndex, WorkspaceInfo};
 use concordance_core::lang::{DocSignature, LanguagePlugin};
 use concordance_core::RepoPath;

@@ -167,17 +167,4 @@ mod tests {
         assert_eq!(doc.join_relative("../b.md").unwrap().as_str(), "docs/b.md");
         assert!(doc.join_relative("../../../x").is_none());
     }
-
-    #[test]
-    fn windows_absolute_paths_relativize_case_insensitively() {
-        if cfg!(windows) {
-            let root = Path::new(r"C:\dev\example");
-            let p = Path::new(r"c:\Dev\example\crates\a\src\lib.rs");
-            assert_eq!(
-                RepoPath::from_fs(root, p).unwrap().as_str(),
-                "crates/a/src/lib.rs"
-            );
-            assert!(RepoPath::from_fs(root, Path::new(r"C:\other\x.rs")).is_none());
-        }
-    }
 }

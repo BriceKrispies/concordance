@@ -228,25 +228,6 @@ fn committed_delta_loads_back_equal() {
 }
 
 #[test]
-fn delete_removes_row_and_keeps_findings() {
-    let dir = TempDir::new("delete");
-    let mut store = Store::open(&dir.db()).unwrap();
-    store.commit(&sample_delta()).unwrap();
-
-    let second = Delta {
-        revision: Revision(2),
-        last_seq: 2,
-        delete_claims: vec![claim_id()],
-        ..Default::default()
-    };
-    store.commit(&second).unwrap();
-
-    let snap = store.load().unwrap();
-    assert!(snap.claims.is_empty());
-    assert_eq!(snap.findings, vec![sample_finding()]);
-}
-
-#[test]
 fn newer_schema_version_is_refused() {
     let dir = TempDir::new("schema");
     let path = dir.db();

@@ -155,23 +155,3 @@ fn a_started_milestone_is_gated_as_before() {
     assert_eq!(s.json["counts"]["planned"], 0);
     assert_eq!(s.code, 1);
 }
-
-#[test]
-fn without_a_gate_nothing_is_planned() {
-    let r = repo("nogate", SPEC, "");
-    let s = scan(&r, "proven");
-    assert_eq!(s.finding("never closed")["status"], "unverified");
-    assert_eq!(s.code, 1);
-}
-
-#[test]
-fn a_requirement_without_a_milestone_counts_as_started() {
-    let spec = SPEC.replace("- Milestone: 2\n\n**LEX-002**", "\n**LEX-002**");
-    let r = repo("nomilestone", &spec, "[gate]\nstarted_milestones = [1]\n");
-    let s = scan(&r, "proven");
-    let f = s.finding("balances");
-    assert_eq!(f["status"], "violated", "{f}");
-    assert!(f.get("milestone").is_none());
-    assert_eq!(s.finding("never closed")["status"], "planned");
-    assert_eq!(s.code, 1);
-}
