@@ -87,6 +87,58 @@ pub struct LintFile {
     /// Globs (repository-relative) restricting which normative files are linted.
     #[serde(default)]
     pub spec: Vec<String>,
+    /// Semantic rules over structured sources, `[lint.rules.<name>]` (see `RULE_NAMES`).
+    #[serde(default)]
+    pub rules: std::collections::BTreeMap<String, RuleFile>,
+}
+
+/// The semantic lint rules that can be configured under `[lint.rules.<name>]`.
+pub const RULE_NAMES: [&str; 9] = [
+    "milestone_order",
+    "budget_row",
+    "sub_budget",
+    "constants",
+    "forbidden_terms",
+    "duplicate_terms",
+    "dead_references",
+    "said_once",
+    "replacement_char",
+];
+
+/// One `[lint.rules.<name>]` table. Every key is optional; a rule reads the keys it knows.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleFile {
+    pub enabled: Option<bool>,
+    /// `error`, `warning` or `info`.
+    pub severity: Option<String>,
+    /// Similarity threshold in percent (`said_once`).
+    pub threshold_percent: Option<u32>,
+    /// Fewest tokens a statement needs to be compared (`said_once`).
+    pub min_tokens: Option<u32>,
+    /// Constant names (`constants`).
+    #[serde(default)]
+    pub names: Vec<String>,
+    /// Path substrings that select the table documents the rule reads (`budget_row`, `constants`).
+    #[serde(default)]
+    pub tables: Vec<String>,
+    /// Words that mark a decomposition (`sub_budget`) or a history note (`dead_references`).
+    #[serde(default)]
+    pub markers: Vec<String>,
+    /// Also read rationales (`dead_references`).
+    pub rationales: Option<bool>,
+    /// Also check statements that name a constant (`constants`; default true).
+    pub statements: Option<bool>,
+    /// Forbidden phrases with their replacement (`forbidden_terms`).
+    #[serde(default)]
+    pub forbidden: Vec<ForbiddenTerm>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForbiddenTerm {
+    pub phrase: String,
+    pub replacement: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -127,6 +179,8 @@ pub struct LintConfig {
     pub internal_markers: Vec<String>,
     /// Globs restricting which normative files are linted; empty means all of them.
     pub spec: Vec<String>,
+    /// `[lint.rules.<name>]` tables, as written.
+    pub rules: std::collections::BTreeMap<String, RuleFile>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,7 +368,18 @@ impl Config {
             vague_words: file.lint.vague_words,
             internal_markers: file.lint.internal_markers,
             spec: file.lint.spec,
+            rules: file.lint.rules,
         };
+        if let Some(bad) = lint
+            .rules
+            .keys()
+            .find(|k| !RULE_NAMES.contains(&k.as_str()))
+        {
+            return Err(format!(
+                "[lint.rules.{bad}] is not a rule; the rules are {}",
+                RULE_NAMES.join(", ")
+            ));
+        }
 
         Ok(Config {
             repo_root,

@@ -390,6 +390,7 @@ name = "concordance-lint"
 version = "0.1.0"
 dependencies = [
  "concordance-core",
+ "concordance-exegra",
  "concordance-graph",
  "concordance-markdown",
  "globset",

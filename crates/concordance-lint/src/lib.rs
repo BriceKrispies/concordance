@@ -18,10 +18,12 @@
 
 mod cases;
 mod rules;
+mod spec_rules;
 mod text;
 mod whitepaper;
 
 pub use cases::{parse_cases, CaseRow, CaseTable};
+pub use spec_rules::{check_source, SourceFinding};
 pub use whitepaper::{parse_index_table, parse_whitepaper, IndexRow, WhitePaperId};
 
 use concordance_core::config::{Config, LintConfig};
@@ -38,6 +40,8 @@ use std::sync::Arc;
 pub enum Severity {
     Error,
     Warning,
+    /// A review hint: never fails the lint, and `--strict` does not raise it.
+    Info,
 }
 
 impl Severity {
@@ -45,6 +49,7 @@ impl Severity {
         match self {
             Severity::Error => "error",
             Severity::Warning => "warning",
+            Severity::Info => "info",
         }
     }
 }
@@ -73,6 +78,8 @@ pub struct LintReport {
     pub strict: bool,
     pub errors: usize,
     pub warnings: usize,
+    /// Review hints (severity `info`).
+    pub infos: usize,
     pub findings: Vec<LintFinding>,
 }
 
@@ -80,7 +87,9 @@ impl LintReport {
     fn new(mut findings: Vec<LintFinding>, strict: bool) -> Self {
         if strict {
             for f in &mut findings {
-                f.severity = Severity::Error;
+                if f.severity == Severity::Warning {
+                    f.severity = Severity::Error;
+                }
             }
         }
         findings.sort_by(|a, b| {
@@ -91,12 +100,17 @@ impl LintReport {
             .iter()
             .filter(|f| f.severity == Severity::Error)
             .count();
+        let infos = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info)
+            .count();
         LintReport {
             tool: "concordance",
             command: "lint",
             strict,
             errors,
-            warnings: findings.len() - errors,
+            warnings: findings.len() - errors - infos,
+            infos,
             findings,
         }
     }
@@ -237,6 +251,27 @@ pub fn lint_repo(model: &Model, config: &Config, strict: bool) -> LintReport {
     // Locations in a virtual document also say where they were rendered from.
     for f in &mut findings {
         f.origin = RepoPath::from_relative_str(&f.path).and_then(|p| model.origin_of(&p, f.line));
+    }
+    // Semantic rules over each structured source.
+    let mut sources: Vec<&concordance_core::RepoPath> =
+        model.virtual_docs.values().map(|v| &v.source).collect();
+    sources.sort();
+    sources.dedup();
+    for src in sources {
+        let Ok(text) = std::fs::read_to_string(src.to_fs(root)) else {
+            continue;
+        };
+        for sf in check_source(src.as_str(), &text, &config.lint.rules) {
+            let mut f = sf.finding;
+            if !sf.entity.is_empty() {
+                f.origin = Some(Origin {
+                    file: src.clone(),
+                    line: f.line,
+                    entity: sf.entity,
+                });
+            }
+            findings.push(f);
+        }
     }
     // Problems in the structured sources themselves (R0): they are in the source file, not in
     // any rendered document.

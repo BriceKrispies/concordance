@@ -866,6 +866,7 @@ mod tests {
             vague_words: None,
             internal_markers: Vec::new(),
             spec: Vec::new(),
+            rules: Default::default(),
         }
     }
 

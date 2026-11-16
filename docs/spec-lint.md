@@ -102,6 +102,60 @@ internal_markers = ["shard"]         # optional: added to the built-in markers
 spec = ["docs/spec/**"]              # optional: lint only the normative files matching these globs
 ```
 
+## Semantic rules over a structured source
+
+Rules R1..R8 read rendered Markdown. The rules S1..S9 read the entities of an Exegra JSONC source
+directly (`claims`, `caseTables`, `terms`, `decisions`) and check the specification against itself.
+They run for every structured source of the repository and report at the source file, on the line of
+the entity (with its `origin`). A repository without a structured source has no S findings. "Active"
+means a requirement whose `lifecycle` is not `retired`.
+
+| Rule | Key | Default | Reports |
+|---|---|---|---|
+| S1 milestone order | `milestone_order` | warning | an active requirement whose `dependsOn`, or whose statement (an id such as `KRN-048`), names an active requirement of a later milestone; or whose statement names, in backticks, a row of one of its own case tables whose `Milestone` column is later |
+| S2 budget row | `budget_row` | error | an active requirement verified as `budget` that has no row in the budget-measurement table (the case table whose path contains `budget-measurement`; its `Requirement` column holds the id). Silent when the source has no such table |
+| S3 sub-budget | `sub_budget` | warning | a parent budget worded as a decomposition (`together`, `in total`, `end to end`, `included`, ...) whose single `within`/`at most`/`under` time bound is smaller than the sum of the bounds of the budgets it depends on. Only exact parses are compared: one time bound per statement and the same percentile on both; anything else is skipped silently |
+| S4 constants | `constants` | warning | needs `names`. A rationale that gives a number with a unit in a sentence naming a configured constant, when the constants table of the requirement's area has no row for it; with `statements = true` (default), a statement that names a configured constant that no constants table defines. A constants table is a case table whose path contains `constants` (`tables` to change); its `Constant` column (else its second column) and case name are matched against the name, ignoring case and punctuation |
+| S5 forbidden terms | `forbidden_terms` | warning | needs `forbidden = [{ phrase, replacement }]`. A phrase in an active requirement (statement, rationale), a decision, a glossary definition, a case table or a section. Matching is by whole words, ignoring case and whitespace runs, and keeps hyphens: `sign-in session` and `sign in session` are different phrases. A sentence that also names the replacement and says `formerly`, `replaces`, `replaced`, `instead of` or `deprecated` is skipped |
+| S6 duplicate terms | `duplicate_terms` | error | a glossary term (`terms`) defined twice, ignoring case, punctuation and a trailing plural `s` |
+| S7 dead reference | `dead_references` | warning | text of an active requirement statement (and its rationale with `rationales = true`), of a decision, or of a case row of a table that an active requirement cites, that names a retired requirement, or an id whose prefix is known but that does not exist. A sentence containing a history word (`retired`, `removed`, `deleted`, `replace`, `supersed`, `merged`, `dropped`, `withdrawn`, `formerly`, `no longer`, `renumbered`, `relaxes`, `obsolete`; `markers` replaces the list) is a history note and is skipped, as is the text of retired requirements |
+| S8 said once | `said_once` | info | an active statement whose stemmed content words have Jaccard similarity of at least `threshold_percent` (default 75) with an earlier one, among statements of at least `min_tokens` (default 6) words. Pairs R6 already reports, pairs that differ by one substituted word on each side, and pairs that differ by different numbers are skipped. One finding per statement, naming its best match |
+| S9 replacement character | `replacement_char` | error | U+FFFD, as the character or as the escape `�`, anywhere in the source file. It runs even when the file does not parse |
+
+Severity `info` is a review hint: it never fails the lint and `--strict` does not raise it. The JSON
+report has an `infos` count and the human summary adds `N hint(s)`.
+
+Every rule is configured under `[lint.rules.<key>]`. All keys are optional; an unknown rule name is a
+configuration error.
+
+```toml
+[lint.rules.milestone_order]
+enabled = true                      # default true for every rule
+severity = "warning"                # "error", "warning" or "info"
+
+[lint.rules.budget_row]
+tables = ["budget-measurement"]     # path substrings of the budget-measurement table
+
+[lint.rules.sub_budget]
+markers = ["together", "end to end"]  # words that mark a parent budget
+
+[lint.rules.constants]
+names = ["projection lag", "replay window"]   # the configured constant names; none, no findings
+tables = ["constants"]
+statements = true
+
+[lint.rules.forbidden_terms]
+forbidden = [{ phrase = "browser session", replacement = "sign-in session" }]
+
+[lint.rules.dead_references]
+rationales = false                  # also read rationales
+markers = ["retired", "removed"]    # replaces the history words
+
+[lint.rules.said_once]
+threshold_percent = 75
+min_tokens = 6
+```
+
 ## Milestones
 
 ```markdown

@@ -592,3 +592,44 @@ impl Builder {
 
 #[cfg(test)]
 mod tests;
+
+/// The parsed JSONC of an Exegra specification: the root value and the 1-based line of each
+/// element of its top-level arrays. Used by checks that read the entities' properties directly.
+#[derive(Clone, Debug)]
+pub struct Source {
+    pub root: Value,
+    /// Top-level array key -> line of each element, in order.
+    pub lines: BTreeMap<String, Vec<usize>>,
+}
+
+impl Source {
+    /// The elements of the top-level array `key` with their JSONC lines (empty when absent).
+    pub fn list<'a>(&'a self, key: &str) -> Vec<(&'a Value, usize)> {
+        let Some(items) = self.root.get(key).and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        let lines = self.lines.get(key);
+        items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v, lines.and_then(|l| l.get(i)).copied().unwrap_or(1)))
+            .collect()
+    }
+}
+
+/// Parse an Exegra JSONC file. The error is a message; it never panics.
+pub fn parse_source(text: &str) -> Result<Source, String> {
+    let clean = jsonc::clean(text)?;
+    let root: Value = serde_json::from_str(&clean).map_err(|e| e.to_string())?;
+    if !root.is_object() {
+        return Err("the top level is not an object".into());
+    }
+    let top = jsonc::scan_top_level(&clean).ok_or("unreadable top level")?;
+    let table = jsonc::LineTable::new(&clean);
+    let lines = top
+        .elements
+        .iter()
+        .map(|(k, offs)| (k.clone(), offs.iter().map(|&o| table.line(o)).collect()))
+        .collect();
+    Ok(Source { root, lines })
+}
