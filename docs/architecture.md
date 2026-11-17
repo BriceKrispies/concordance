@@ -68,7 +68,7 @@ define requirement IDs), and remaps every range into the `.jsonc`. It depends on
 | Claim | path + heading path + normalized text + occurrence; **carried** by the engine to an edited claim when the textual match is unique (Jaccard >= 0.5, runner-up at least 0.1 behind) | light rewording |
 | Symbol | kind + crate-qualified path + disambiguator (trait for trait-impl items, cfg, occurrence), never lines | moves, body edits |
 | Edge | kind + source + reference text + target | |
-| Evidence | subject + method + check key | re-derivation |
+| Evidence | subject + method + check key (citations: the citation text) | re-derivation |
 | Finding | its subject (claim, prose reference, symbol+aspect, claim pair) | every scan; resolved findings are kept |
 
 ## The incremental engine
@@ -112,13 +112,29 @@ In short:
 |---|---|
 | `violated` (structural contradiction) | Valid structural contradicting evidence of strength >= Strong: a dangling explicit reference, a differing signature, a missing file or heading, an unsafe or panic site in a constrained scope, a declared forbidden dependency, or a constant outside a documented bound. |
 | `violated` (suspected semantic contradiction) | Semantic `disagrees` with validated code citations, **and** an adversarial challenge that upheld it. |
-| `stale` | Semantic evidence was invalidated by a change and has not been re-established. |
+| `stale` | Semantic evidence was invalidated by a change and has not been re-established, or cited code changed at the configured `compare` revision (`citation_drift`). |
 | `ambiguous` | Semantic `ambiguous`, heuristic vague wording, or two normative bounds that conflict. |
 | `verified` | One of:<br>• a matching documented signature;<br>• a satisfied deterministic constraint (strength >= Strong);<br>• semantic `agrees` upheld by a challenge;<br>• semantic `agrees` in a single pass, for low-impact claims only. |
 | `unverified` | Everything else. Suspected contradictions that were not confirmed stay here, labelled `suspected_semantic_contradiction` when a semantic verdict raised them and `suspected_structural_contradiction` when only moderate structural evidence did (for example a code span naming a type that does not resolve). |
 | `undocumented` | Public API behavior (panics, error returns, environment reads, missing contract) that no claim covers. |
 
 Symbol existence is recorded as *inconclusive linkage*. It never supports a behavioral claim.
+
+## Citations of other repositories
+
+`[ALIAS:path:lines]` citations point into git repositories other than the analyzed one. The
+Markdown indexer extracts them by shape only (`concordance_markdown::extract_citations`, usable on
+any text), so the index does not depend on configuration. `[repos]` maps aliases to repositories;
+`concordance-engine/src/git.rs` resolves `cited` and `compare` once at startup and implements
+`reconcile::citation::CitedRepos` over the git CLI (`ls-tree` per revision, one long-lived
+`cat-file --batch` per repository, `diff -M` for renames, all cached in memory).
+`reconcile::citation` turns each citation into `CitationPath`, `CitationLines` and `CitationDrift`
+evidence about the claim or document that contains it. Citations create no edges: the cited code is
+not part of the model.
+
+Git state is not a model node, so evidence cannot depend on it by content hash. Instead the resolved
+commits are part of the persisted state version (`Shared::state_version`): a moved `compare`
+revision forces a full re-derivation on the next start, like an extractor change.
 
 ## Authority
 

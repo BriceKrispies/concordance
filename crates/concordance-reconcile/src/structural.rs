@@ -181,9 +181,26 @@ pub fn claim_evidence(
     let mut out = Vec::new();
     let cdep = claim_dep(claim);
 
-    // 1-3. Reference resolution (symbols, files, links).
+    // 1-3. Reference resolution (symbols, files, links, citations).
     let mut linked: Vec<(&Edge, &Symbol)> = Vec::new();
+    let mut cited: Vec<&str> = Vec::new();
     for r in &claim.references {
+        if matches!(r.target, ReferenceTarget::Citation { .. }) {
+            if let Some(repos) = fs.cited_repos() {
+                if !cited.contains(&r.text.as_str()) {
+                    cited.push(&r.text);
+                    let spec = spec_citation(claim, r.range.as_ref());
+                    out.extend(crate::citation::citation_evidence(
+                        repos,
+                        &b(StructuralCheck::CitationPath),
+                        r,
+                        vec![spec],
+                        &[cdep.clone()],
+                    ));
+                }
+            }
+            continue;
+        }
         let e = edges
             .iter()
             .find(|e| e.target_text == r.text && e.kind != EdgeKind::MentionsSymbol);
@@ -699,6 +716,7 @@ pub fn prose_evidence(
     doc: &Document,
     refs: &[ProseReference],
     edges: &[Edge],
+    fs: &dyn FsProbe,
     ctx: &BatchContext,
 ) -> Vec<(FindingSubject, Evidence)> {
     let subject = NodeRef::Document(doc.id.clone());
@@ -714,8 +732,45 @@ pub fn prose_evidence(
         content_hash: doc.content_hash.clone(),
     }];
     let mut out = Vec::new();
+    // Citations: one subject per distinct citation text, located at every occurrence.
+    if let Some(repos) = fs.cited_repos() {
+        let mut groups: Vec<(&Reference, Vec<&ProseReference>)> = Vec::new();
+        for p in refs
+            .iter()
+            .filter(|p| matches!(p.reference.target, ReferenceTarget::Citation { .. }))
+        {
+            match groups.iter_mut().find(|g| g.0.text == p.reference.text) {
+                Some(g) => g.1.push(p),
+                None => groups.push((&p.reference, vec![p])),
+            }
+        }
+        for (r, occurrences) in groups {
+            let spec: Vec<Citation> = occurrences
+                .iter()
+                .take(MAX_SITE_CITATIONS)
+                .map(|p| Citation {
+                    role: CitationRole::Specification,
+                    range: p.reference.range.clone().unwrap_or_else(|| {
+                        concordance_core::SourceRange::lines(doc.path.clone(), 1, 1)
+                    }),
+                    excerpt: bounded(&p.reference.text),
+                    node: Some(NodeRef::Section(p.section.clone())),
+                })
+                .collect();
+            let subject = FindingSubject::ProseReference {
+                document: doc.id.clone(),
+                text: r.text.clone(),
+            };
+            for ev in crate::citation::citation_evidence(repos, &b, r, spec, &base) {
+                out.push((subject.clone(), ev));
+            }
+        }
+    }
     for p in refs {
         let r = &p.reference;
+        if matches!(r.target, ReferenceTarget::Citation { .. }) {
+            continue;
+        }
         // Prose only produces findings for Explicit references.
         if r.strength != ReferenceStrength::Explicit {
             continue;

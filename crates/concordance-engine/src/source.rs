@@ -35,6 +35,7 @@ pub fn read_text(root: &Path, path: &RepoPath) -> std::io::Result<String> {
 
 pub struct RepoFs {
     pub root: PathBuf,
+    pub cited: Option<std::sync::Arc<crate::git::GitRepos>>,
 }
 
 impl FsProbe for RepoFs {
@@ -45,6 +46,12 @@ impl FsProbe for RepoFs {
     fn find_line(&self, path: &RepoPath, pred: &dyn Fn(&str) -> bool) -> Option<u32> {
         let text = read_text(&self.root, path).ok()?;
         text.lines().position(pred).map(|i| i as u32 + 1)
+    }
+
+    fn cited_repos(&self) -> Option<&dyn concordance_reconcile::citation::CitedRepos> {
+        self.cited
+            .as_deref()
+            .map(|c| c as &dyn concordance_reconcile::citation::CitedRepos)
     }
 }
 

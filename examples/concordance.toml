@@ -29,3 +29,11 @@ port = 4173
 [exegra]                                 # Exegra JSONC specifications under spec_roots (docs/exegra.md)
 # Row kinds (table rowKind or list name) whose `ref` defines a requirement ID for `Verifies:`.
 requirement_kinds = ["rule", "boundaryRule", "obligation", "requirement", "claim"]
+
+# Citations of other repositories: `[APP:apps/api/src/catalog.ts:67-132]` in a spec is
+# checked against this repository at `cited` (see docs/cli.md, "Citations").
+[repos.APP]
+path = "../platform"     # a git repository; relative to this file
+cited = "27e5fb9"                        # the revision the citations were written against
+compare = "origin/main"                  # optional: report drift of the cited text against it
+spellings = ["app"]                      # optional: other spellings of the alias

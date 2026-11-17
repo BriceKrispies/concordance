@@ -6,7 +6,9 @@ use concordance_core::doc::{Authority, AuthorityAssessment, AuthoritySource};
 use concordance_core::RepoPath;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FileKind {
@@ -37,6 +39,8 @@ pub struct PathFilter {
     src_roots: Vec<PathBuf>,
     exclude: GlobSet,
     gitignore: Gitignore,
+    /// `.gitignore` files below the root (e.g. one per sub-repository), by directory.
+    nested: Mutex<HashMap<PathBuf, Option<Arc<Gitignore>>>>,
     state_dir: PathBuf,
 }
 
@@ -62,12 +66,45 @@ impl PathFilter {
             src_roots: config.src_roots.clone(),
             exclude: build_globs(&config.exclude),
             gitignore: gi.build().unwrap_or_else(|_| Gitignore::empty()),
+            nested: Mutex::new(HashMap::new()),
             state_dir: config.state_dir.clone(),
         }
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    fn nested_gitignore(&self, dir: &Path) -> Option<Arc<Gitignore>> {
+        let mut cache = self.nested.lock().unwrap_or_else(|e| e.into_inner());
+        cache
+            .entry(dir.to_path_buf())
+            .or_insert_with(|| {
+                let file = dir.join(".gitignore");
+                file.is_file().then(|| {
+                    let mut b = GitignoreBuilder::new(dir);
+                    let _ = b.add(file);
+                    Arc::new(b.build().unwrap_or_else(|_| Gitignore::empty()))
+                })
+            })
+            .clone()
+    }
+
+    /// Whether a `.gitignore` in a directory between the root and `rel` ignores it. The
+    /// walker applies these itself; the watcher relies on this.
+    fn ignored_below_root(&self, rel: &RepoPath) -> bool {
+        let parts: Vec<&str> = rel.as_str().split('/').collect();
+        let mut dir = self.root.clone();
+        for i in 0..parts.len().saturating_sub(1) {
+            dir.push(parts[i]);
+            if let Some(gi) = self.nested_gitignore(&dir) {
+                let below = parts[i + 1..].join("/");
+                if gi.matched_path_or_any_parents(&below, false).is_ignore() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Classify an absolute path. `None` when it is not part of the analysis.
@@ -110,6 +147,7 @@ impl PathFilter {
             .gitignore
             .matched_path_or_any_parents(rel.as_str(), false)
             .is_ignore()
+            || self.ignored_below_root(&rel)
         {
             return None;
         }

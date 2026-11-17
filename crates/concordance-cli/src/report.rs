@@ -51,6 +51,9 @@ pub struct Report {
     pub semantic: SemanticSummary,
     pub counts: Counts,
     pub gate: Gate,
+    /// Citation checks per alias; present when `[repos]` is configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub citations: Option<concordance_engine::citation::CitationSummary>,
     pub findings: Vec<ReportFinding>,
 }
 
@@ -78,6 +81,7 @@ pub fn build(
     semantic: &SemanticStatus,
     fail_on: FailOn,
     include_resolved: bool,
+    repos: &[concordance_core::config::RepoConfig],
 ) -> Report {
     let mut findings: Vec<&Finding> = m
         .findings
@@ -136,6 +140,7 @@ pub fn build(
             proven_violations: proven,
             suspected_violations: suspected,
         },
+        citations: concordance_engine::citation::summarize(m, repos),
         findings: findings
             .into_iter()
             .map(|f| ReportFinding {
@@ -182,6 +187,20 @@ pub fn human(r: &Report, verbose: bool) -> String {
     );
     let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.verified, c.undocumented);
     let _ = writeln!(out, "\n{}\n", r.semantic.coverage);
+    if let Some(cs) = &r.citations {
+        let _ = writeln!(out, "Citations (distinct): alias, found, resolved, by prefix, ambiguous, missing, bad lines, drifted, moved");
+        for a in cs.aliases.iter().filter(|a| a.cited.is_some()) {
+            let _ = writeln!(
+                out,
+                "  {:<8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+                a.alias, a.citations, a.resolved, a.prefix_resolved, a.ambiguous, a.missing, a.bad_lines, a.drifted, a.moved
+            );
+        }
+        if let Some(n) = &cs.note {
+            let _ = writeln!(out, "  {n}");
+        }
+        let _ = writeln!(out);
+    }
     let order = [
         FindingStatus::Violated,
         FindingStatus::Stale,

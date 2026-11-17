@@ -45,6 +45,12 @@ pub enum StructuralCheck {
     PublicApiCoverage,
     /// A `Verifies:` declaration names a requirement no specification defines.
     RequirementResolution,
+    /// A `[ALIAS:path]` citation's path at the cited revision (exact, prefix, missing).
+    CitationPath,
+    /// A citation's line ranges or section against the cited file.
+    CitationLines,
+    /// The cited text at the cited revision against the configured `compare` revision.
+    CitationDrift,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

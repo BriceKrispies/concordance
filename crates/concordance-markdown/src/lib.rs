@@ -6,6 +6,7 @@
 //! * All ranges are 1-based lines into `text`, `path` = the given RepoPath.
 
 mod authority;
+mod citations;
 mod classify;
 mod index;
 mod inline;
@@ -23,7 +24,7 @@ use concordance_core::lang::Languages;
 use std::collections::HashMap;
 
 /// Bump when extraction output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "md-8";
+pub const EXTRACTOR_VERSION: &str = "md-9";
 use concordance_core::RepoPath;
 
 /// Extract sections, claims, references and authority from one Markdown file.
@@ -69,6 +70,8 @@ pub fn index_document_with(
 ) -> DocumentIndex {
     index::build(path, text, Some(authority), languages, hints)
 }
+
+pub use citations::{extract_citations, parse_citation, CitationMatch};
 
 /// GitHub-style heading anchor: lowercase, spaces -> `-`, drop punctuation except `-`/`_`.
 pub fn slugify(heading: &str) -> String {

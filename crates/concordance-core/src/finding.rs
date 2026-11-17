@@ -76,6 +76,9 @@ pub enum FindingCategory {
     Supported,
     /// A test that declares it verifies this requirement failed in the recorded run.
     TestFailure,
+    /// Cited code changed between the revision a citation names and the configured
+    /// `compare` revision. The citation is still true at its own revision.
+    CitationDrift,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

@@ -30,9 +30,16 @@
 //! requirement_kinds = ["rule", "boundaryRule", "obligation", "requirement", "claim"]
 //!
 //! test_results = ["ci/test-output.txt"]  # libtest output (text or JSON lines); --test-results overrides
+//!
+//! [repos.APP]                      # `[APP:path:lines]` citations point into this git repository
+//! path = "../platform"   # relative to the config file
+//! cited = "27e5fb9"                # the revision the citations were written against
+//! compare = "origin/main"          # optional: report drift of cited lines against this revision
+//! spellings = ["app"]              # optional: other spellings of the alias
 //! ```
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -58,6 +65,9 @@ pub struct ConfigFile {
     pub server: ServerFile,
     #[serde(default)]
     pub exegra: ExegraConfig,
+    /// Git repositories that `[ALIAS:path]` citations refer to, keyed by alias.
+    #[serde(default)]
+    pub repos: BTreeMap<String, RepoFile>,
 }
 
 /// `[exegra]`: how Exegra JSONC specifications are read.
@@ -82,6 +92,36 @@ impl Default for ExegraConfig {
         ExegraConfig {
             requirement_kinds: Self::default_requirement_kinds(),
         }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepoFile {
+    pub path: PathBuf,
+    pub cited: String,
+    pub compare: Option<String>,
+    #[serde(default)]
+    pub spellings: Vec<String>,
+}
+
+/// A cited repository, resolved. Revisions are as written; the engine resolves them
+/// with git and reports what does not resolve.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RepoConfig {
+    pub alias: String,
+    /// Absolute path of the repository (its working tree is never read).
+    pub path: PathBuf,
+    pub cited: String,
+    pub compare: Option<String>,
+    pub spellings: Vec<String>,
+}
+
+impl RepoConfig {
+    /// Whether a citation written with `alias` belongs to this repository (ASCII case-insensitive).
+    pub fn matches(&self, alias: &str) -> bool {
+        self.alias.eq_ignore_ascii_case(alias)
+            || self.spellings.iter().any(|s| s.eq_ignore_ascii_case(alias))
     }
 }
 
@@ -153,9 +193,15 @@ pub struct Config {
     pub host: String,
     pub port: u16,
     pub exegra: ExegraConfig,
+    pub repos: Vec<RepoConfig>,
 }
 
 impl Config {
+    /// The configured repository a citation alias refers to.
+    pub fn repo_for_alias(&self, alias: &str) -> Option<&RepoConfig> {
+        self.repos.iter().find(|r| r.matches(alias))
+    }
+
     /// Merge file + overrides. `base_dir` resolves a relative `repo` from the file
     /// (the config file's directory) or from the CLI (the current directory).
     /// `default_state_base` is the per-user data directory (e.g. `%LOCALAPPDATA%\concordance`).
@@ -225,6 +271,41 @@ impl Config {
                 .collect()
         };
 
+        let mut repos: Vec<RepoConfig> = Vec::new();
+        for (alias, r) in file.repos {
+            if !is_alias(&alias) {
+                return Err(format!(
+                    "[repos.{alias}]: an alias is 2-16 letters, digits, `_` or `-`, starting with a letter"
+                ));
+            }
+            let path = absolutize(file_dir.unwrap_or(cwd), &r.path);
+            if !path.is_dir() {
+                return Err(format!(
+                    "[repos.{alias}]: repository {} does not exist",
+                    path.display()
+                ));
+            }
+            if r.cited.trim().is_empty() {
+                return Err(format!("[repos.{alias}]: `cited` is empty"));
+            }
+            let all = std::iter::once(&alias).chain(&r.spellings);
+            for name in all {
+                if let Some(other) = repos.iter().find(|o: &&RepoConfig| o.matches(name)) {
+                    return Err(format!(
+                        "[repos.{alias}]: spelling `{name}` is already used by [repos.{}]",
+                        other.alias
+                    ));
+                }
+            }
+            repos.push(RepoConfig {
+                alias,
+                path,
+                cited: r.cited.trim().to_string(),
+                compare: r.compare.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()),
+                spellings: r.spellings,
+            });
+        }
+
         let s = file.semantic;
         let model = cli
             .model
@@ -254,8 +335,18 @@ impl Config {
                 .unwrap_or_else(|| "127.0.0.1".to_string()),
             port: cli.port.or(file.server.port).unwrap_or(4173),
             exegra: file.exegra,
+            repos,
         })
     }
+}
+
+/// Citation alias shape: `APP`, `web-ui`, `Legacy`, `my-repo`.
+pub fn is_alias(s: &str) -> bool {
+    let b = s.as_bytes();
+    (2..=16).contains(&b.len())
+        && b[0].is_ascii_alphabetic()
+        && b.iter()
+            .all(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'-')
 }
 
 fn absolutize(base: &Path, p: &Path) -> PathBuf {
