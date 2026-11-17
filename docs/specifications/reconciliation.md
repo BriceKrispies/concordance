@@ -48,4 +48,4 @@ pub fn carry_claim_ids(old: &[Claim], new: &mut [Claim])
 ## Example
 
 A specification stating "the volume must never exceed 100" against code that calls
-`v.min(150)` produces a suspected semantic contradiction, not a proven one.
+`v.min(150)` produces a suspected contradiction, not a proven one.

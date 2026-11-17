@@ -11,7 +11,8 @@
 //! 7. heuristic vague wording -> `ambiguous`
 //! 8. semantic `agrees`, challenged and upheld (or unchallenged for low-impact claims) -> `verified`
 //! 9. valid structural support of strength >= Strong covering the claim -> `verified`
-//! 10. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected)
+//! 10. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected;
+//!     labelled structural when only structural evidence suggests it)
 //! 11. otherwise -> `unverified` (missing evidence)
 
 use crate::text::spec_citation;
@@ -270,6 +271,8 @@ pub fn claim_finding(
         || sem_verdict == Some("disagrees")
         || (sem_verdict == Some("agrees") && ch_verdict == Some("refuted"))
     {
+        let semantic_suspicion = sem_verdict == Some("disagrees")
+            || (sem_verdict == Some("agrees") && ch_verdict == Some("refuted"));
         let why = if let Some(e) = moderate_contra.first() {
             e.summary.clone()
         } else if sem_verdict == Some("disagrees") {
@@ -282,7 +285,12 @@ pub fn claim_finding(
         };
         Decision {
             status: FindingStatus::Unverified,
-            category: FindingCategory::SuspectedSemanticContradiction,
+            // With no semantic verdict the suspicion is purely structural; say so.
+            category: if semantic_suspicion {
+                FindingCategory::SuspectedSemanticContradiction
+            } else {
+                FindingCategory::SuspectedStructuralContradiction
+            },
             confidence: 0.4,
             quality: EvidenceQuality::Moderate,
             headline: format!("Possible contradiction, not established: {why}."),
@@ -539,6 +547,14 @@ pub fn locate(model: &Model, symbols: &[SymbolId]) -> (Option<String>, Option<St
     (krate, module)
 }
 
+fn is_suspected(c: FindingCategory) -> bool {
+    matches!(
+        c,
+        FindingCategory::SuspectedSemanticContradiction
+            | FindingCategory::SuspectedStructuralContradiction
+    )
+}
+
 pub fn severity_for(
     status: FindingStatus,
     category: FindingCategory,
@@ -550,9 +566,7 @@ pub fn severity_for(
         (FindingStatus::Stale, _) => Severity::Medium,
         (FindingStatus::Ambiguous, Authority::Normative) => Severity::Medium,
         (FindingStatus::Ambiguous, _) => Severity::Low,
-        (FindingStatus::Unverified, _)
-            if category == FindingCategory::SuspectedSemanticContradiction =>
-        {
+        (FindingStatus::Unverified, _) if is_suspected(category) => {
             Severity::Medium
         }
         (FindingStatus::Undocumented, _) => Severity::Low,
@@ -568,9 +582,7 @@ fn title_for(status: FindingStatus, category: FindingCategory, claim: &Claim) ->
         (FindingStatus::Stale, _) => "Evidence stale",
         (FindingStatus::Ambiguous, _) => "Ambiguous",
         (FindingStatus::Verified, _) => "Verified",
-        (FindingStatus::Unverified, FindingCategory::SuspectedSemanticContradiction) => {
-            "Possible contradiction"
-        }
+        (FindingStatus::Unverified, c) if is_suspected(c) => "Possible contradiction",
         _ => "Unverified",
     };
     format!("{prefix}: {short}")
@@ -615,7 +627,7 @@ pub fn proposals_for(
             &targets,
         )],
         FindingStatus::Ambiguous => vec![p(ClarifySpecification, "Rewrite the statement as a single checkable obligation (concrete values, one modality).", authority == Authority::Normative, &spec_target)],
-        FindingStatus::Unverified if category == FindingCategory::SuspectedSemanticContradiction => vec![
+        FindingStatus::Unverified if is_suspected(category) => vec![
             p(GatherStrongerEvidence, "Confirm or refute the suspected contradiction (adversarial challenge, a test that exercises the behavior).", false, &targets),
         ],
         FindingStatus::Unverified => vec![p(

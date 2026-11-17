@@ -12,6 +12,7 @@ export function titleCase(snake) {
 export const CATEGORY_TEXT = {
   structural_contradiction: 'Proven structural contradiction',
   suspected_semantic_contradiction: 'Suspected semantic contradiction (model-assessed, challenged)',
+  suspected_structural_contradiction: 'Suspected structural contradiction (suggestive, not proven)',
   missing_evidence: 'Missing evidence: nothing yet confirms or refutes this claim',
   unclear_documentation: 'Unclear documentation: the specification is ambiguous or inconsistent',
   missing_documentation: 'Missing documentation: public code with no documented contract',
