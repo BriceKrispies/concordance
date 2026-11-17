@@ -14,7 +14,11 @@ common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
 Roots may be absolute or relative to the repository. Without `--config`, `concordance.toml` in
 the repository is used if it exists. Command-line values override the file; a repeated
 `--spec-root`/`--src-root` replaces the file's whole list. See `examples/concordance.toml` for the
-schema (it is intentionally small: roots, excludes, state dir, authority globs, semantic, server).
+schema (it is intentionally small: roots, excludes, state dir, authority globs, semantic, server,
+exegra).
+
+Spec roots hold Markdown (`.md`) and Exegra JSONC specifications (`.jsonc`/`.json` with a
+top-level `"exegra"` key); see [exegra.md](exegra.md).
 
 ## Exit codes
 

@@ -25,3 +25,7 @@ claude_path = "claude"
 [server]
 host = "127.0.0.1"
 port = 4173
+
+[exegra]                                 # Exegra JSONC specifications under spec_roots (docs/exegra.md)
+# Row kinds (table rowKind or list name) whose `ref` defines a requirement ID for `Verifies:`.
+requirement_kinds = ["rule", "boundaryRule", "obligation", "requirement", "claim"]

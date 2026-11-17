@@ -27,7 +27,8 @@ one obligation, test results are recorded but never verify or violate a claim on
 finding says the requirement should be split.
 
 An ID is an upper-case prefix, optional upper-case/digit segments and a number with an optional
-dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`. IDs are recognised only where they are
+dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`, `B-5`. The number may carry a one- or
+two-letter tag (`PII-T1`, `AI-R3`). IDs are recognised only where they are
 defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
 (`PROJ-2147`) are not requirements.
 

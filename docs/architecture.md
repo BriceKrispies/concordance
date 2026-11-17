@@ -10,6 +10,7 @@ claims more than their evidence supports).
 ```
 concordance-core        domain model: ids, claims, symbols, edges, evidence, findings, events, config
 concordance-markdown    pulldown-cmark -> DocumentIndex (sections, claims, references, authority)
+concordance-exegra      Exegra JSONC specification -> rendered Markdown -> DocumentIndex located in the .jsonc
 concordance-rust        Rust language plugin: syn + cargo metadata -> SourceIndex
 concordance-typescript  TypeScript/JavaScript language plugin: oxc + package.json -> SourceIndex
 concordance-graph       in-memory Model + reverse indexes, name resolution, neighborhoods
@@ -48,6 +49,15 @@ Dependencies point downward only. `core` knows no HTTP, SQL, Markdown AST or `sy
                                            └─> EventBus (typed events) ─> SSE / JSONL / CLI
                                            └─> Store (SQLite delta per batch)
 ```
+
+## Exegra specifications
+
+`concordance-exegra` reads an Exegra JSONC specification (a `.jsonc`/`.json` under a spec root
+with a top-level `"exegra"` key; discovery sniffs the key, other JSON is ignored). It renders the
+sections to Markdown exactly as Exegra does, keeping the JSONC origin of every rendered line,
+indexes the result with `concordance-markdown` (with block hints for rows and authored claims that
+define requirement IDs), and remaps every range into the `.jsonc`. It depends only on `core` and
+`markdown`; the engine treats its output as one more document. See [exegra.md](exegra.md).
 
 ## Identity
 
