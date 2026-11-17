@@ -7,7 +7,8 @@ use crate::lines::LineIndex;
 use crate::parse::{self, Raw};
 use crate::refs;
 use crate::sections::{role_from_heading, AnchorAllocator};
-use crate::text::{mask_ranges, split_sentences};
+use crate::text::{mask_ranges, split_sentences, words_lower};
+use crate::Hints;
 use concordance_core::doc::*;
 use concordance_core::lang::Languages;
 use concordance_core::{ClaimId, ContentHash, DocumentId, RepoPath, SectionId, SourceRange};
@@ -29,6 +30,9 @@ struct Builder<'a> {
     sec_req: Vec<Option<String>>,
     /// Requirement ID opening the text block being processed.
     block_req: Option<String>,
+    hints: &'a Hints,
+    /// Authority a hint sets for the text block being processed.
+    block_authority: Option<Authority>,
 }
 
 /// The requirement ID a heading defines: its first word, if that word is an ID
@@ -65,6 +69,24 @@ fn inline_requirement(source: &str, inline: &Inline) -> Option<(String, usize)> 
                 .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '—' | '-'))
                 .len());
     Some((token.to_string(), skip))
+}
+
+/// A statement the caller declared to be a claim although it has no modal verb (a rule
+/// in a register states what must hold in the present tense).
+fn forced(sent: &str, code_ranges: &[(usize, usize)]) -> classify::Classified {
+    let modality = classify::modality(&words_lower(&mask_ranges(sent, code_ranges)));
+    let kind = if matches!(modality, Modality::MustNot | Modality::ShouldNot) {
+        ClaimKind::Prohibition
+    } else {
+        ClaimKind::Requirement
+    };
+    classify::Classified {
+        modality,
+        kind,
+        bounds: Vec::new(),
+        ambiguity: Vec::new(),
+        constraint: None,
+    }
 }
 
 fn code_ranges(inline: &Inline) -> Vec<(usize, usize)> {
@@ -151,7 +173,9 @@ impl<'a> Builder<'a> {
         *occ += 1;
         let id = ClaimId::from_key(&[self.path.as_str(), &hp, &lower, &occ_s]);
         let content_hash = ContentHash::of_str(&format!("{hp}{SEP}{text}"));
-        let authority = self.effective_authority(section.role);
+        let authority = self
+            .block_authority
+            .unwrap_or_else(|| self.effective_authority(section.role));
         let (bounds, ambiguity, documented_signature, constraint) = extra;
         let requirement = match (&self.block_req, &self.sec_req[sec]) {
             (Some(id), _) => Some(RequirementRef {
@@ -200,13 +224,20 @@ impl<'a> Builder<'a> {
     ) {
         let text = inline.text.as_str();
         let cranges = code_ranges(inline);
-        let sentences = match whole_row {
-            Some(_) => vec![(0, text.len())],
-            None => split_sentences(text, &cranges),
+        let start_byte = whole_row.map_or_else(|| inline.byte_at(0), |w| w.0);
+        let hints = self.hints;
+        let hint = hints.blocks.get(&self.lines.line(start_byte));
+        let sentences = if whole_row.is_some() || hint.is_some_and(|h| h.whole_claim) {
+            vec![(0, text.len())]
+        } else {
+            split_sentences(text, &cranges)
         };
         let section_id = self.sections[sec].id.clone();
         let opener = inline_requirement(self.lines.source(), inline);
-        self.block_req = opener.as_ref().map(|(id, _)| id.clone());
+        self.block_req = hint
+            .and_then(|h| h.requirement.clone())
+            .or_else(|| opener.as_ref().map(|(id, _)| id.clone()));
+        self.block_authority = hint.and_then(|h| h.authority);
         let skip = opener.map(|(_, n)| n).unwrap_or(0);
         for (s, e) in sentences {
             // The opening ID is a label, not part of the statement.
@@ -231,12 +262,19 @@ impl<'a> Builder<'a> {
                     refs.push(r);
                 }
             }
-            let classified = classify::classify(&Sentence {
+            let mut classified = classify::classify(&Sentence {
                 text: sent,
                 code_ranges: &rel_ranges,
                 refs: &refs,
                 codes: &codes,
+            })
+            .or_else(|| {
+                hint.filter(|h| h.whole_claim)
+                    .map(|_| forced(sent, &rel_ranges))
             });
+            if let (Some(c), Some(k)) = (classified.as_mut(), hint.and_then(|h| h.kind)) {
+                c.kind = k;
+            }
             match classified {
                 Some(c) => {
                     let range = match whole_row {
@@ -261,6 +299,7 @@ impl<'a> Builder<'a> {
                 None => self.add_prose(&section_id, refs),
             }
         }
+        self.block_authority = None;
     }
 
     fn code_block(&mut self, sec: usize, lang: &str, content: &str, first_byte: usize) {
@@ -324,6 +363,7 @@ pub fn build(
     text: &str,
     configured: Option<AuthorityAssessment>,
     languages: &Languages,
+    hints: &Hints,
 ) -> DocumentIndex {
     let front = authority::front_matter(text);
     let parse_text = match &front {
@@ -367,6 +407,8 @@ pub fn build(
         claim_occ: HashMap::new(),
         sec_req: vec![None],
         block_req: None,
+        hints,
+        block_authority: None,
     };
 
     // Section bookkeeping.

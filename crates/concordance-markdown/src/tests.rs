@@ -177,12 +177,31 @@ Floats MUST be finite.
 #[test]
 fn requirement_id_shape() {
     use concordance_core::doc::is_requirement_id as ok;
-    for good in ["PSS-003", "LANG-006.3", "UI-12", "WEB-SEC-004"] {
+    for good in [
+        "PSS-003",
+        "LANG-006.3",
+        "UI-12",
+        "WEB-SEC-004",
+        // Register-style identifiers: letter prefixes and numbered rows.
+        "P-1",
+        "B-5",
+        "C-030",
+        "TEN-1",
+        "CAP-01",
+        "G-SEC-01",
+        "FR-AGT-1",
+        "PII-T1",
+        "AI-R3",
+    ] {
         assert!(ok(good), "{good}");
     }
     for bad in [
         "pss-003",
-        "P-1",
+        "b-5",
+        "PII-t1",
+        "AI-RRR3",
+        "PII-T",
+        "-1",
         "PSS",
         "PSS-",
         "PSS-abc",
