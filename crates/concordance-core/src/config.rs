@@ -26,6 +26,9 @@
 //! host = "127.0.0.1"
 //! port = 4173
 //!
+//! [exegra]                         # Exegra JSONC specifications
+//! requirement_kinds = ["rule", "boundaryRule", "obligation", "requirement", "claim"]
+//!
 //! test_results = ["ci/test-output.txt"]  # libtest output (text or JSON lines); --test-results overrides
 //! ```
 
@@ -53,6 +56,33 @@ pub struct ConfigFile {
     pub semantic: SemanticFile,
     #[serde(default)]
     pub server: ServerFile,
+    #[serde(default)]
+    pub exegra: ExegraConfig,
+}
+
+/// `[exegra]`: how Exegra JSONC specifications are read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExegraConfig {
+    /// Row kinds whose `ref` defines a requirement ID (`rule` or `rules`, either form).
+    #[serde(default = "ExegraConfig::default_requirement_kinds")]
+    pub requirement_kinds: Vec<String>,
+}
+
+impl ExegraConfig {
+    fn default_requirement_kinds() -> Vec<String> {
+        ["rule", "boundaryRule", "obligation", "requirement", "claim"]
+            .map(String::from)
+            .to_vec()
+    }
+}
+
+impl Default for ExegraConfig {
+    fn default() -> Self {
+        ExegraConfig {
+            requirement_kinds: Self::default_requirement_kinds(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +152,7 @@ pub struct Config {
     pub semantic: SemanticConfig,
     pub host: String,
     pub port: u16,
+    pub exegra: ExegraConfig,
 }
 
 impl Config {
@@ -222,6 +253,7 @@ impl Config {
                 .or(file.server.host)
                 .unwrap_or_else(|| "127.0.0.1".to_string()),
             port: cli.port.or(file.server.port).unwrap_or(4173),
+            exegra: file.exegra,
         })
     }
 }

@@ -12,6 +12,7 @@ rust-version = "1.80"
 [workspace.dependencies]
 concordance-core = { path = "crates/concordance-core" }
 concordance-markdown = { path = "crates/concordance-markdown" }
+concordance-exegra = { path = "crates/concordance-exegra" }
 concordance-rust = { path = "crates/concordance-rust" }
 concordance-typescript = { path = "crates/concordance-typescript" }
 concordance-graph = { path = "crates/concordance-graph" }

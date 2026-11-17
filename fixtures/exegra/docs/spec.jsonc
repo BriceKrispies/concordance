@@ -1,0 +1,48 @@
+{
+  // Fixture: an Exegra specification converted from Markdown, plus authored claims.
+  "exegra": "0.1",
+  "system": { "id": "tenancy", "name": "Tenancy" },
+  "tables": [
+    {"id":"tbl-1","section":"sec-rules","columns":["ID","Rule","State"],"separator":"|---|---|---|","rowKind":"rule","columnProperties":["idColumn","rule","state"]},
+    {"id":"tbl-2","section":"sec-status","columns":["Item","Value"],"separator":"|---|---|","rowKind":"tableRow"},
+  ],
+  "rules": [
+    {"id":"ten-1","ref":"TEN-1","table":"tbl-1","idColumn":"TEN-1","rule":"Each organization has its own database.","state":"Built.","source":"spec.md:9"},
+    {"id":"ten-2","ref":"TEN-2","table":"tbl-1","idColumn":"TEN-2","rule":"A request MUST carry the `Tenant` header.","state":"Partly built.","layout":"|{}|  {}  | {} |","source":"spec.md:10"}
+  ],
+  "tableRows": [
+    {"id":"tbl-2-r1","table":"tbl-2","cells":["Status","Draft"],"source":"spec.md:18"},
+    {"id":"tbl-2-r2","table":"tbl-2","cells":["Owner",""],"source":"spec.md:19"}
+  ],
+  "sections": [
+    {"id":"sec-status","title":"Status of \"tenancy\"","level":2,"order":3,"body":"\n{{entity:tbl-2}}\n{{entity:tbl-2-r1}}\n{{entity:tbl-2-r2}}\n"},
+    {"id":"sec-tenancy","title":"Tenancy","level":1,"order":1,"body":"\nThe service MUST reject a request without a tenant.\n\n"},
+    {"id":"sec-rules","title":"Rules","level":2,"order":2,"body":"\n{{entity:tbl-1}}\n{{entity:ten-1}}\n{{entity:ten-2}}\n\nThe \"resolver\" `resolveTenant()` MUST NOT return `null`.\n\n"}
+  ],
+  "claims": [
+    {
+      "id": "fr-iso-1",
+      "ref": "FR-ISO-1",
+      "kind": "invariant",
+      "statement": "No request reads data of another organization.",
+      "origin": "proposed"
+    },
+    {
+      "id": "fr-agt-1",
+      "ref": "FR-AGT-1",
+      "kind": "structural",
+      "statement": "The agent service has no direct relationship to the database.",
+      "evaluate": { "method": "no-relationship", "from": "agent-service", "to": "database" },
+      "origin": "proposed"
+    }
+  ],
+  "seams": [
+    {
+      "id": "s-01",
+      "ref": "S-01",
+      "question": "Is a tenant the same as an organization?",
+      "provisionalChoice": "One to one; the mapping MUST stay reversible.",
+      "origin": "proposed"
+    }
+  ]
+}

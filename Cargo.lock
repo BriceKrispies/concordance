@@ -324,6 +324,7 @@ version = "0.1.0"
 dependencies = [
  "concordance-core",
  "concordance-events",
+ "concordance-exegra",
  "concordance-graph",
  "concordance-markdown",
  "concordance-reconcile",
@@ -345,6 +346,14 @@ version = "0.1.0"
 dependencies = [
  "concordance-core",
  "tokio",
+]
+
+[[package]]
+name = "concordance-exegra"
+version = "0.1.0"
+dependencies = [
+ "concordance-core",
+ "concordance-markdown",
 ]
 
 [[package]]
