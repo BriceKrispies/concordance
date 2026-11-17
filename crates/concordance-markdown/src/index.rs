@@ -239,7 +239,7 @@ impl<'a> Builder<'a> {
             .or_else(|| opener.as_ref().map(|(id, _)| id.clone()));
         self.block_authority = hint.and_then(|h| h.authority);
         let skip = opener.map(|(_, n)| n).unwrap_or(0);
-        for (s, e) in sentences {
+        for (k, (s, e)) in sentences.into_iter().enumerate() {
             // The opening ID is a label, not part of the statement.
             let s = if s < skip { skip.min(e) } else { s };
             if s >= e {
@@ -262,11 +262,21 @@ impl<'a> Builder<'a> {
                     refs.push(r);
                 }
             }
+            let rel = |v: &[(usize, usize)]| -> Vec<(usize, usize)> {
+                v.iter()
+                    .filter(|&&(a, b)| a >= s && b <= e && a < b)
+                    .map(|&(a, b)| (a - s, b - s))
+                    .collect()
+            };
+            let (labels, quoted) = (rel(&inline.labels), rel(&inline.quoted));
             let mut classified = classify::classify(&Sentence {
                 text: sent,
                 code_ranges: &rel_ranges,
                 refs: &refs,
                 codes: &codes,
+                labels: &labels,
+                quoted: &quoted,
+                follows_sentence: k > 0,
             })
             .or_else(|| {
                 hint.filter(|h| h.whole_claim)

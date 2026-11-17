@@ -115,7 +115,7 @@ In short:
 | `stale` | Semantic evidence was invalidated by a change and has not been re-established. |
 | `ambiguous` | Semantic `ambiguous`, heuristic vague wording, or two normative bounds that conflict. |
 | `verified` | One of:<br>• a matching documented signature;<br>• a satisfied deterministic constraint (strength >= Strong);<br>• semantic `agrees` upheld by a challenge;<br>• semantic `agrees` in a single pass, for low-impact claims only. |
-| `unverified` | Everything else. Suspected contradictions that were not confirmed stay here, labelled. |
+| `unverified` | Everything else. Suspected contradictions that were not confirmed stay here, labelled `suspected_semantic_contradiction` when a semantic verdict raised them and `suspected_structural_contradiction` when only moderate structural evidence did (for example a code span naming a type that does not resolve). |
 | `undocumented` | Public API behavior (panics, error returns, environment reads, missing contract) that no claim covers. |
 
 Symbol existence is recorded as *inconclusive linkage*. It never supports a behavioral claim.

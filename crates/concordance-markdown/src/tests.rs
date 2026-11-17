@@ -239,7 +239,7 @@ fn dotted_type_paths_and_throw_constraints_are_language_neutral() {
 
     let d = index(
         "docs/spec.md",
-        "# Spec\n\n`parse()` MUST NOT throw.\n\nThe decoder MUST NOT panic.\n",
+        "# Spec\n\n`parse()` MUST NOT throw.\n\nThis library MUST NOT panic.\n",
     );
     let forms: Vec<_> = d.claims.iter().map(|c| c.constraint.clone()).collect();
     assert!(
@@ -248,4 +248,131 @@ fn dotted_type_paths_and_throw_constraints_are_language_neutral() {
             .all(|f| matches!(f, Some(ConstraintForm::NoPanic { .. }))),
         "throw and panic map to the same failure-site check: {forms:?}"
     );
+}
+
+#[test]
+fn failure_constraints_need_a_named_or_whole_code_scope() {
+    let d = index(
+        "docs/spec.md",
+        "# Spec\n\nThe client never throws.\n\nThe decoder MUST NOT panic.\n\n\
+         Unsafe code is forbidden in the parser.\n\nThis crate must not use unsafe code.\n\n\
+         Unsafe code is forbidden.\n\n`Decoder` MUST NOT panic.\n",
+    );
+    let form = |t: &str| {
+        d.claims
+            .iter()
+            .find(|c| c.text.starts_with(t))
+            .unwrap_or_else(|| panic!("no claim {t}"))
+            .constraint
+            .clone()
+    };
+    assert_eq!(
+        form("The client never throws"),
+        None,
+        "unresolvable part, not the codebase"
+    );
+    assert_eq!(form("The decoder MUST NOT"), None);
+    assert_eq!(form("Unsafe code is forbidden in the parser"), None);
+    assert_eq!(
+        form("This crate must not"),
+        Some(ConstraintForm::NoUnsafe { scope: vec![] })
+    );
+    assert_eq!(
+        form("Unsafe code is forbidden."),
+        Some(ConstraintForm::NoUnsafe { scope: vec![] })
+    );
+    assert_eq!(
+        form("`Decoder` MUST NOT"),
+        Some(ConstraintForm::NoPanic {
+            scope: vec!["Decoder".into()]
+        })
+    );
+}
+
+#[test]
+fn table_labels_and_quoted_cells_do_not_drive_modality_or_vagueness() {
+    let d = index(
+        "docs/spec.md",
+        "# Spec\n\n\
+         | Role | May do | Where |\n|---|---|---|\n\
+         | app | It reads rows. It cannot connect to the control DB. | its own DB |\n\n\
+         | Field | Type | Required | Meaning |\n|---|---|---|---|\n\
+         | version | int >= 1 | no | The payload version |\n\n\
+         | Key | Summary | Business need |\n|---|---|---|\n\
+         | T-1 | Some images are missing | Each book must show a cover. |\n\
+         | T-2 | Show stats | The list must load quickly. |\n",
+    );
+    let claim = |t: &str| d.claims.iter().find(|c| c.text.contains(t));
+    let role = claim("cannot connect").expect("row claim");
+    assert_eq!(role.modality, Modality::MustNot);
+    assert!(
+        role.ambiguity.is_empty(),
+        "the `May do` label is not a weak qualifier: {:?}",
+        role.ambiguity
+    );
+    assert!(
+        claim("payload version").is_none(),
+        "a `Required: no` cell is not an obligation"
+    );
+    let quoted = claim("Some images").expect("row claim");
+    assert!(
+        quoted.ambiguity.is_empty(),
+        "the Summary cell quotes a ticket title"
+    );
+    let own = claim("load quickly").expect("row claim");
+    assert!(
+        own.ambiguity.iter().any(|a| a.detail.contains("quickly")),
+        "the author's own column is still graded"
+    );
+}
+
+#[test]
+fn bounds_do_not_take_a_unit_from_the_next_cell() {
+    let d = index(
+        "docs/spec.md",
+        "# Spec\n\n| Field | Type | Need |\n|---|---|---|\n| n | int >= 1 | must be set |\n",
+    );
+    let b = &d.claims[0].bounds[0];
+    assert_eq!((b.op, b.value, b.unit.as_deref()), (BoundOp::Ge, 1.0, None));
+}
+
+#[test]
+fn leading_pronoun_after_a_sentence_has_an_antecedent() {
+    let d = index(
+        "docs/spec.md",
+        "# Spec\n\nThe request must have an empty body. It must not contain an identity header.\n\n\
+         It must be banned.\n\nIt is not known if the ranker must apply.\n",
+    );
+    let notes = |t: &str| {
+        d.claims
+            .iter()
+            .find(|c| c.text == t)
+            .map(|c| c.ambiguity.clone())
+            .unwrap()
+    };
+    assert!(notes("It must not contain an identity header.").is_empty());
+    assert!(
+        notes("It is not known if the ranker must apply.").is_empty(),
+        "expletive `it` has no antecedent to miss"
+    );
+    assert!(notes("It must be banned.")
+        .iter()
+        .any(|a| a.kind == AmbiguityKind::UnresolvedSubject));
+}
+
+#[test]
+fn not_required_is_not_an_obligation() {
+    let d = index(
+        "docs/spec.md",
+        "# Spec\n\nThis step is not required by the process. Comments may hold later decisions.\n\n\
+         A token is required for each call.\n",
+    );
+    let m = |t: &str| {
+        d.claims
+            .iter()
+            .find(|c| c.text.starts_with(t))
+            .map(|c| c.modality)
+    };
+    assert_ne!(m("This step is not required"), Some(Modality::Must));
+    assert_eq!(m("A token is required"), Some(Modality::Must));
 }

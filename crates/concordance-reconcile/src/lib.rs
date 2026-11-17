@@ -21,7 +21,7 @@ pub mod verification;
 use concordance_core::{RepoPath, Revision, Timestamp};
 
 /// Bump when reconciliation rules change, so persisted findings are re-derived.
-pub const RULES_VERSION: &str = "rules-7";
+pub const RULES_VERSION: &str = "rules-8";
 
 /// Filesystem existence probe for references that point outside the indexed roots.
 /// Implementations must only answer for paths inside the repository.

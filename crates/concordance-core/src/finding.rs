@@ -61,6 +61,9 @@ pub enum FindingCategory {
     StructuralContradiction,
     /// Semantic analysis suspects a behavioral contradiction (model-assessed, challenged).
     SuspectedSemanticContradiction,
+    /// Moderate structural evidence suggests a contradiction (an unresolved name, a clamp
+    /// beyond a bound) that a deterministic check cannot establish.
+    SuspectedStructuralContradiction,
     /// No evidence establishes compliance either way.
     MissingEvidence,
     /// Documentation is unclear, vague or self-contradictory.

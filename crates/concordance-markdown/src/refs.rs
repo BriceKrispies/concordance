@@ -173,6 +173,23 @@ fn split_line_suffix(s: &str) -> (&str, Option<u32>) {
     (s, None)
 }
 
+/// Whether the text between a call's parentheses could be code. A number followed by
+/// another word (`rate(1 hour)`, `cron(30 6 * * ? *)`) or a bare `?` is a schedule or
+/// prose expression, never an argument list.
+fn code_like_args(args: &str) -> bool {
+    let toks: Vec<&str> = args.split_whitespace().collect();
+    let numeric = |t: &str| t.chars().next().is_some_and(|c| c.is_ascii_digit());
+    let wordish = |t: &str| {
+        t.chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    };
+    !toks.contains(&"?")
+        && !toks.windows(2).any(|p| {
+            numeric(p[0]) && !p[0].ends_with([',', ':', ';']) && (wordish(p[1]) || p[1] == "*")
+        })
+}
+
 fn has_known_ext(name: &str) -> bool {
     match name.rsplit_once('.') {
         Some((stem, ext)) => {
@@ -207,6 +224,9 @@ pub fn classify_code(code: &str) -> Option<(ReferenceTarget, ReferenceStrength)>
     }
     if s.ends_with(')') {
         if let Some(i) = s.find('(') {
+            if !code_like_args(&s[i + 1..s.len() - 1]) {
+                return None;
+            }
             let head = s[..i].trim();
             if let Some(path) = dotted_type_path(head) {
                 return sym(path, ReferenceStrength::Explicit);
@@ -219,9 +239,15 @@ pub fn classify_code(code: &str) -> Option<(ReferenceTarget, ReferenceStrength)>
             {
                 return None; // a built-in's member (`Math.min(...)`)
             }
-            let head = head.rsplit('.').next().unwrap_or(head);
+            // A call on a value (`client.send(req)`, `schema.fn(text)`): the receiver's
+            // type is unknown, so the method may come from a dependency or another
+            // language (a SQL routine). Absence from the index proves nothing.
+            let (head, strength) = match head.rsplit_once('.') {
+                Some((_, m)) => (m, ReferenceStrength::Probable),
+                None => (head, ReferenceStrength::Explicit),
+            };
             if is_ident(head) {
-                return sym(vec![head.to_string()], ReferenceStrength::Explicit);
+                return sym(vec![head.to_string()], strength);
             }
         }
     }
@@ -366,6 +392,27 @@ mod tests {
         );
         assert_eq!(sym("RateLimiter").unwrap().1, Probable);
         assert_eq!(sym("max_retries").unwrap().1, Weak);
+        assert_eq!(
+            sym("mixer.set_volume(3)").unwrap(),
+            (vec!["set_volume".into()], Probable),
+            "a call on a value cannot prove the method is missing"
+        );
+        assert_eq!(
+            sym("public.find_api_key(text)").unwrap().1,
+            Probable,
+            "a schema-qualified SQL routine is not an explicit project symbol"
+        );
+        assert!(
+            classify_code("rate(1 hour)").is_none(),
+            "schedule expression"
+        );
+        assert!(
+            classify_code("cron(30 6 * * ? *)").is_none(),
+            "schedule expression"
+        );
+        assert_eq!(sym("clamp(v, 0, 100)").unwrap().1, Explicit);
+        assert_eq!(sym("new(capacity: u32)").unwrap().1, Explicit);
+        assert_eq!(sym("retry(3)").unwrap().1, Explicit);
         assert!(classify_code("Option<String>").is_none());
         assert!(classify_code("true").is_none());
         assert!(classify_code("cargo build").is_none());

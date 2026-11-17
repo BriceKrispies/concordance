@@ -23,7 +23,7 @@ use concordance_core::lang::Languages;
 use std::collections::HashMap;
 
 /// Bump when extraction output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "md-7";
+pub const EXTRACTOR_VERSION: &str = "md-8";
 use concordance_core::RepoPath;
 
 /// Extract sections, claims, references and authority from one Markdown file.

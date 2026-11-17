@@ -411,9 +411,7 @@ fn constraint_evidence(
             } else {
                 FactKind::PanicSite
             };
-            let in_tests = |s: &Symbol| {
-                s.cfg.iter().any(|c| c == "test") || s.path.iter().any(|p| p == "tests")
-            };
+            let in_tests = crate::gaps::in_test_code;
             let sites: Vec<(&Symbol, &concordance_core::code::Fact)> = symbols
                 .iter()
                 .filter(|s| !in_tests(s))
