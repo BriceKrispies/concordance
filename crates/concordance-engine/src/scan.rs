@@ -139,7 +139,10 @@ impl Engine {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
-            markdown_files: files.iter().filter(|f| f.1 == FileKind::Markdown).count() as u32,
+            markdown_files: files
+                .iter()
+                .filter(|f| matches!(f.1, FileKind::Markdown | FileKind::Exegra))
+                .count() as u32,
             rust_files: files
                 .iter()
                 .filter(|f| matches!(f.1, FileKind::Source(_)))
@@ -188,6 +191,12 @@ impl Engine {
                 if let Some((rel, kind)) = filter.classify(&p) {
                     removed.remove(&rel);
                     targets.insert(rel.clone(), Target { rel, kind, abs: p });
+                } else if let Some(rel) = RepoPath::from_fs(filter.root(), &p) {
+                    // A JSON file that stopped being an Exegra specification.
+                    if self.shared.read(|m| m.document_by_path(&rel).is_some()).0 {
+                        targets.remove(&rel);
+                        removed.insert(rel, FileKind::Markdown);
+                    }
                 }
                 continue;
             }
@@ -286,6 +295,7 @@ impl Engine {
         });
 
         let total = targets.len() as u32;
+        let exegra = Arc::new(shared.config.exegra.clone());
         let revision = shared.read(|m| m.revision).0.next();
         shared.bus.set_revision(revision);
         let mut pending = Pending::new(BatchContext {
@@ -333,6 +343,7 @@ impl Engine {
             let known = known.clone();
             let rules = rules.clone();
             let ws = ws_for_parse.clone();
+            let exegra = exegra.clone();
             set.spawn_blocking(move || {
                 batch
                     .into_iter()
@@ -342,6 +353,7 @@ impl Engine {
                             known.get(&t.rel),
                             &rules,
                             &ws,
+                            &exegra,
                             force || (ws_changed && matches!(t.kind, FileKind::Source(_))),
                         );
                         (t.rel, t.kind, r)
@@ -491,7 +503,9 @@ impl Engine {
             let mut events = Vec::new();
             for (rel, kind) in &removed {
                 match kind {
-                    FileKind::Markdown => pending.remove_document(&mut m, rel, &mut events),
+                    FileKind::Markdown | FileKind::Exegra => {
+                        pending.remove_document(&mut m, rel, &mut events)
+                    }
                     FileKind::Source(_) => pending.remove_source(&mut m, rel, &mut events),
                 }
             }
@@ -510,7 +524,7 @@ impl Engine {
             });
             envelopes.push(completed);
             delta.last_seq = shared.bus.last_seq();
-            delta.extractor_version = Some(crate::extractor_version());
+            delta.extractor_version = Some(crate::extractor_version(&shared.config));
             delta.events = envelopes
                 .iter()
                 .filter(|e| e.event.is_state_change())
@@ -645,6 +659,7 @@ fn parse_one(
     known: Option<&Known>,
     rules: &AuthorityRules,
     ws: &WorkspaceInfo,
+    exegra: &concordance_core::config::ExegraConfig,
     force: bool,
 ) -> Result<Option<Parsed>, String> {
     let root_rel = &t.rel;
@@ -654,6 +669,25 @@ fn parse_one(
     };
     let hash = ContentHash::of_str(&text);
     match t.kind {
+        FileKind::Exegra => {
+            let configured = rules.assess(&t.rel);
+            if !force
+                && known.is_some_and(|k| k.hash == hash && k.configured_authority == configured)
+            {
+                return Ok(None);
+            }
+            let options = concordance_exegra::Options {
+                requirement_kinds: exegra.requirement_kinds.clone(),
+            };
+            concordance_exegra::index_exegra(
+                &t.rel,
+                &text,
+                configured,
+                crate::languages(),
+                &options,
+            )
+            .map(|d| Some(Parsed::Doc(Box::new(d))))
+        }
         FileKind::Markdown => {
             let configured = rules.assess(&t.rel);
             if !force

@@ -214,11 +214,14 @@ pub fn languages() -> &'static concordance_core::lang::Languages {
     })
 }
 
-/// Identifies the extractor build; persisted so that extractor changes force re-indexing.
-pub fn extractor_version() -> String {
+/// Identifies the extractor build and the configuration extraction depends on; persisted
+/// so that a change to either forces re-indexing.
+pub fn extractor_version(config: &Config) -> String {
     format!(
-        "{}+{}+{}",
+        "{}+{}:{}+{}+{}",
         concordance_markdown::EXTRACTOR_VERSION,
+        concordance_exegra::EXTRACTOR_VERSION,
+        &concordance_core::short_hash(&[&config.exegra.requirement_kinds.join(",")])[..8],
         languages().extractor_versions(),
         concordance_reconcile::RULES_VERSION
     )
@@ -257,8 +260,8 @@ pub async fn start(
         .load()
         .map_err(|e| EngineError::Store(e.to_string()))?;
     let restored = snapshot.revision.0 > 0;
-    let reindex =
-        restored && snapshot.extractor_version.as_deref() != Some(extractor_version().as_str());
+    let reindex = restored
+        && snapshot.extractor_version.as_deref() != Some(extractor_version(&config).as_str());
     // Events published but not yet committed before a crash are gone; jump well past any
     // such window so no sequence number is ever reused. Old cursors then resync.
     let resume = if snapshot.last_seq > 0 {

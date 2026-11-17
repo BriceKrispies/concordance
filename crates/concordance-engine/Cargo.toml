@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 concordance-core.workspace = true
 concordance-markdown.workspace = true
+concordance-exegra.workspace = true
 concordance-rust.workspace = true
 concordance-typescript.workspace = true
 concordance-graph.workspace = true

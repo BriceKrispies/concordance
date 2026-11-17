@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FileKind {
     Markdown,
+    /// An Exegra JSONC specification (`.jsonc`/`.json` with a top-level `"exegra"` key).
+    Exegra,
     /// Source code owned by the language plugin with this id.
     Source(&'static str),
 }
@@ -73,10 +75,11 @@ impl PathFilter {
         let rel = RepoPath::from_fs(&self.root, abs)?;
         let kind = match rel.extension()? {
             "md" => FileKind::Markdown,
+            "json" | "jsonc" => FileKind::Exegra,
             ext => FileKind::Source(crate::languages().for_extension(ext)?.id()),
         };
         let roots = match kind {
-            FileKind::Markdown => &self.spec_roots,
+            FileKind::Markdown | FileKind::Exegra => &self.spec_roots,
             FileKind::Source(_) => &self.src_roots,
         };
         let under_root = roots.iter().any(|r| {
@@ -111,6 +114,10 @@ impl PathFilter {
             return None;
         }
         if RepoPath::from_fs(&self.root, &self.state_dir).is_some_and(|s| rel.starts_with_dir(&s)) {
+            return None;
+        }
+        // Other JSON under the spec roots (package.json, fixtures) is not a specification.
+        if kind == FileKind::Exegra && !is_exegra_file(abs) {
             return None;
         }
         Some((rel, kind))
@@ -149,6 +156,12 @@ impl PathFilter {
         out.dedup_by(|a, b| a.0 == b.0);
         out
     }
+}
+
+fn is_exegra_file(abs: &Path) -> bool {
+    std::fs::metadata(abs).is_ok_and(|m| m.len() <= crate::source::MAX_FILE_BYTES)
+        && std::fs::read(abs)
+            .is_ok_and(|b| concordance_exegra::is_exegra(&String::from_utf8_lossy(&b)))
 }
 
 fn is_same_dir(a: &Path, b: &Path) -> bool {

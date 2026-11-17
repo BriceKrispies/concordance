@@ -11,12 +11,14 @@ The domain model in `concordance_core` is the contract every subsystem speaks.
 - `concordance_graph` must not depend on `concordance_storage`.
 - `concordance_reconcile` must not depend on `concordance_semantic`.
 - `concordance_markdown` must not depend on `syn`.
+- `concordance_exegra` must not depend on `concordance_engine`.
 
 ## Safety
 
 - The `concordance_core` crate must not use unsafe code.
 - The `concordance_reconcile` crate must not use unsafe code.
 - The `concordance_graph` crate must not use unsafe code.
+- The `concordance_exegra` crate must not use unsafe code.
 
 ## Parsing and indexing
 

@@ -70,10 +70,14 @@ pub struct SourceExcerpt {
 /// Indexed content hash and node id for a repository path.
 fn indexed(model: &Model, path: &RepoPath) -> Option<(ContentHash, NodeRef, &'static str)> {
     if let Some(d) = model.document_by_path(path) {
+        let language = match path.extension() {
+            Some("json" | "jsonc") => "jsonc",
+            _ => "markdown",
+        };
         return Some((
             d.content_hash.clone(),
             NodeRef::Document(d.id.clone()),
-            "markdown",
+            language,
         ));
     }
     model
