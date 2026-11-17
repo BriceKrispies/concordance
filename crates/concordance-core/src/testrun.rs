@@ -8,7 +8,8 @@
 //! * libtest JSON lines: `{"type":"test","event":"ok","name":"suite::case"}`
 //! * cargo-nextest: `PASS [ 0.01s] crate::binary suite::case` (also `FAIL`, `SKIP`, ...)
 //! * JUnit XML (vitest `--reporter=junit`, most CI reporters): `<testcase name="a > b">`
-//!   with `<failure>`/`<error>`/`<skipped>` children
+//!   with `<failure>`/`<error>`/`<skipped>` children; bun's nested `<testsuite>` per
+//!   `describe` gives the path when the case name is only the title
 //! * vitest / jest text: `✓ src/x.test.ts > describe > case`, `× ...` / `✗ ...`
 //!
 //! Names are normalized to `::`-separated segments: `describe > case` -> `describe::case`.
@@ -111,13 +112,40 @@ fn segments(name: &str) -> String {
         .join("::")
 }
 
+/// Next `<testsuite`, `</testsuite>` or `<testcase` at or after `from`.
+fn next_junit_tag(text: &str, from: usize) -> Option<usize> {
+    ["<testsuite", "</testsuite>", "<testcase"]
+        .iter()
+        .filter_map(|t| text[from..].find(t).map(|i| from + i))
+        .min()
+}
+
 fn parse_junit(text: &str) -> Vec<(String, TestOutcome)> {
     let mut out = Vec::new();
-    let mut rest = text;
-    while let Some(i) = rest.find("<testcase") {
-        rest = &rest[i..];
+    // Names of the open `<testsuite>` elements. bun nests one per `describe` inside the
+    // file's suite and puts only the test title in `name`, so the chain below the
+    // outermost suite is the describe path. Its `classname` lists that path reversed.
+    let mut suites: Vec<String> = Vec::new();
+    let mut at = 0;
+    while let Some(i) = next_junit_tag(text, at) {
+        let rest = &text[i..];
+        if rest.starts_with("</testsuite>") {
+            suites.pop();
+            at = i + "</testsuite>".len();
+            continue;
+        }
         let Some(tag_end) = rest.find('>') else { break };
         let tag = &rest[..tag_end];
+        at = i + tag_end;
+        if rest.starts_with("<testsuites") {
+            continue;
+        }
+        if rest.starts_with("<testsuite") {
+            if !tag.ends_with('/') {
+                suites.push(attr(tag, "name").unwrap_or_default());
+            }
+            continue;
+        }
         let body = if tag.ends_with('/') {
             ""
         } else {
@@ -132,9 +160,18 @@ fn parse_junit(text: &str) -> Vec<(String, TestOutcome)> {
             } else {
                 TestOutcome::Passed
             };
-            out.push((segments(&name), o));
+            let describes = suites.iter().skip(1).filter(|s| !s.is_empty());
+            let full = if name.contains(" > ") {
+                segments(&name)
+            } else {
+                describes
+                    .map(|s| s.trim())
+                    .chain([name.trim()])
+                    .collect::<Vec<_>>()
+                    .join("::")
+            };
+            out.push((full, o));
         }
-        rest = &rest[tag_end..];
     }
     out
 }
@@ -300,5 +337,37 @@ test result: FAILED. 1 passed; 1 failed
             Some(&TestOutcome::Passed)
         );
         assert_eq!(r.get("Mixer::clamps"), Some(&TestOutcome::Failed));
+    }
+
+    #[test]
+    fn parses_bun_junit_with_nested_describe_suites() {
+        let junit = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="4">
+  <testsuite name="test\nest.test.ts" file="test\nest.test.ts" tests="4">
+    <testsuite name="outer" file="test\nest.test.ts" line="2" tests="3">
+      <testsuite name="inner" file="test\nest.test.ts" line="3" tests="1">
+        <testcase name="deep case" classname="inner &gt; outer" file="test\nest.test.ts" line="4" />
+      </testsuite>
+      <testcase name="shallow &amp; &lt;case&gt;" classname="outer" line="6">
+        <failure type="AssertionError" message="x">AssertionError</failure>
+      </testcase>
+      <testcase name="skipped case" classname="outer" line="7">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testcase name="top level" classname="" line="9" />
+  </testsuite>
+  <testsuite name="test\empty.test.ts" file="test\empty.test.ts" tests="0" />
+  <testsuite name="test\other.test.ts" file="test\other.test.ts" tests="1">
+    <testcase name="after an empty suite" classname="" line="1" />
+  </testsuite>
+</testsuites>"#;
+        let r = parse(junit);
+        assert_eq!(r.get("outer::inner::deep case"), Some(&TestOutcome::Passed));
+        assert_eq!(r.get("outer::shallow & <case>"), Some(&TestOutcome::Failed));
+        assert_eq!(r.get("outer::skipped case"), Some(&TestOutcome::Ignored));
+        assert_eq!(r.get("top level"), Some(&TestOutcome::Passed));
+        assert_eq!(r.get("after an empty suite"), Some(&TestOutcome::Passed));
+        assert_eq!(r.len(), 5);
     }
 }

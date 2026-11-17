@@ -59,6 +59,23 @@ fn junit(passed: bool) -> String {
     )
 }
 
+/// bun's report: one nested suite per `describe`, the case name is only the title.
+fn junit_bun(passed: bool) -> String {
+    let body = if passed {
+        ""
+    } else {
+        "<failure type=\"AssertionError\" message=\"x\">AssertionError</failure>"
+    };
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites name=\"bun test\">\n\
+         <testsuite name=\"src\\mixer.test.ts\" file=\"src\\mixer.test.ts\">\n\
+         <testsuite name=\"Mixer\" file=\"src\\mixer.test.ts\" line=\"4\">\n\
+         <testcase name=\"rejects levels above 100\" classname=\"Mixer\">{body}</testcase>\n\
+         <testcase name=\"keeps an accepted level\" classname=\"Mixer\" />\n\
+         </testsuite></testsuite></testsuites>\n"
+    )
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typescript_repository_is_reconciled_with_exact_ts_locations() {
     let repo = fixture_copy("typescript");
@@ -149,6 +166,21 @@ async fn typescript_repository_is_reconciled_with_exact_ts_locations() {
     let req = claim_finding(&m, "SHALL reject a level above 100");
     assert_eq!(req.status, FindingStatus::Violated, "{}", req.explanation);
     assert_eq!(req.category, FindingCategory::TestFailure);
+
+    // The same through bun's nested-suite JUnit.
+    std::fs::write(&results, junit_bun(true)).unwrap();
+    r.engine.request_scan(false).await;
+    r.idle().await;
+    let m = r.engine.shared.read(|m| m.clone()).0;
+    let req = claim_finding(&m, "SHALL reject a level above 100");
+    assert_eq!(req.status, FindingStatus::Verified, "{}", req.explanation);
+
+    std::fs::write(&results, junit_bun(false)).unwrap();
+    r.engine.request_scan(false).await;
+    r.idle().await;
+    let m = r.engine.shared.read(|m| m.clone()).0;
+    let req = claim_finding(&m, "SHALL reject a level above 100");
+    assert_eq!(req.status, FindingStatus::Violated, "{}", req.explanation);
 
     r.stop().await;
 }
