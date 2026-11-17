@@ -208,7 +208,7 @@ impl<'a> Builder<'a> {
         let opener = inline_requirement(self.lines.source(), inline);
         self.block_req = opener.as_ref().map(|(id, _)| id.clone());
         let skip = opener.map(|(_, n)| n).unwrap_or(0);
-        for (s, e) in sentences {
+        for (k, (s, e)) in sentences.into_iter().enumerate() {
             // The opening ID is a label, not part of the statement.
             let s = if s < skip { skip.min(e) } else { s };
             if s >= e {
@@ -231,11 +231,21 @@ impl<'a> Builder<'a> {
                     refs.push(r);
                 }
             }
+            let rel = |v: &[(usize, usize)]| -> Vec<(usize, usize)> {
+                v.iter()
+                    .filter(|&&(a, b)| a >= s && b <= e && a < b)
+                    .map(|&(a, b)| (a - s, b - s))
+                    .collect()
+            };
+            let (labels, quoted) = (rel(&inline.labels), rel(&inline.quoted));
             let classified = classify::classify(&Sentence {
                 text: sent,
                 code_ranges: &rel_ranges,
                 refs: &refs,
                 codes: &codes,
+                labels: &labels,
+                quoted: &quoted,
+                follows_sentence: k > 0,
             });
             match classified {
                 Some(c) => {

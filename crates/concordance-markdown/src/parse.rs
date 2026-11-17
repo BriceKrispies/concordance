@@ -24,6 +24,11 @@ pub enum Raw {
     },
 }
 
+/// Column headers whose cells conventionally quote another source verbatim (a ticket
+/// title, an upstream summary). Their wording is not the author's, so it is not graded
+/// for vagueness.
+const QUOTED_HEADERS: &[&str] = &["summary", "title", "quote", "verbatim"];
+
 #[derive(Clone, Copy, PartialEq)]
 enum Container {
     Item,
@@ -219,11 +224,15 @@ impl Walker {
                     if !row.text.is_empty() {
                         row.push_raw("; ");
                     }
-                    match self.headers.get(i) {
-                        Some(h) if !h.is_empty() => row.push_raw(&format!("{h}: ")),
-                        _ => {}
+                    let header = self.headers.get(i).map(|h| h.trim()).unwrap_or("");
+                    if !header.is_empty() {
+                        row.push_label(&format!("{header}: "));
                     }
+                    let start = row.text.len();
                     row.append(cell);
+                    if QUOTED_HEADERS.contains(&header.to_lowercase().as_str()) {
+                        row.quoted.push((start, row.text.len()));
+                    }
                 }
                 if !row.is_blank() {
                     self.out.push(Raw::Text {
