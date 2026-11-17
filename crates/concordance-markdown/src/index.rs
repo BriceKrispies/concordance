@@ -1,6 +1,7 @@
 //! Assembly of a [`DocumentIndex`] from the parsed blocks.
 
 use crate::authority;
+use crate::citations::{extract_citations, CitationMatch};
 use crate::classify::{self, Sentence};
 use crate::inline::{Inline, Item};
 use crate::lines::LineIndex;
@@ -100,6 +101,24 @@ impl<'a> Builder<'a> {
                 })
             }
         }
+    }
+
+    /// Citations in a block, as references located in the source.
+    fn citations(&self, inline: &Inline) -> Vec<(usize, Reference)> {
+        extract_citations(&inline.text)
+            .into_iter()
+            .map(|CitationMatch { start, end, text, target }| {
+                let a = inline.byte_at(start);
+                let b = inline.byte_at(end.saturating_sub(1)) + 1;
+                let reference = Reference {
+                    text,
+                    target,
+                    strength: ReferenceStrength::Explicit,
+                    range: Some(self.lines.range(self.path, a, b.max(a + 1))),
+                };
+                (start, reference)
+            })
+            .collect()
     }
 
     fn add_prose(&mut self, section: &SectionId, refs: Vec<Reference>) {
@@ -208,6 +227,7 @@ impl<'a> Builder<'a> {
         let opener = inline_requirement(self.lines.source(), inline);
         self.block_req = opener.as_ref().map(|(id, _)| id.clone());
         let skip = opener.map(|(_, n)| n).unwrap_or(0);
+        let citations = self.citations(inline);
         for (s, e) in sentences {
             // The opening ID is a label, not part of the statement.
             let s = if s < skip { skip.min(e) } else { s };
@@ -237,6 +257,14 @@ impl<'a> Builder<'a> {
                 refs: &refs,
                 codes: &codes,
             });
+            // Added after classification: a citation says where a fact came from; it
+            // does not make a sentence a claim.
+            refs.extend(
+                citations
+                    .iter()
+                    .filter(|(at, _)| *at >= s && *at < e)
+                    .map(|(_, r)| r.clone()),
+            );
             match classified {
                 Some(c) => {
                     let range = match whole_row {
@@ -433,8 +461,9 @@ pub fn build(
                 stack.push((*level, idx));
                 current = idx;
                 let sid = b.sections[idx].id.clone();
-                let hrefs: Vec<Reference> =
+                let mut hrefs: Vec<Reference> =
                     inline.items.iter().filter_map(|i| b.reference(i)).collect();
+                hrefs.extend(b.citations(inline).into_iter().map(|(_, r)| r));
                 b.add_prose(&sid, hrefs);
             }
             Raw::Text {

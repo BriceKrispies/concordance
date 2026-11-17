@@ -18,6 +18,7 @@ export const CATEGORY_TEXT = {
   invalidated_evidence: 'Invalidated evidence: earlier evidence no longer applies after a change',
   supported: 'Supported by evidence',
   test_failure: 'Test failure: a test that verifies this requirement failed',
+  citation_drift: 'Citation drift: the cited code changed after the cited revision',
 };
 
 export const ACTION_TEXT = {
@@ -117,6 +118,10 @@ export function referenceTargetText(t) {
     case 'section': return `${t.document}${t.anchor ? '#' + t.anchor : ''}`;
     case 'outside_repo': return t.text;
     case 'external': return t.url; // shown as text only, never as a link
+    case 'citation': {
+      const lines = (t.lines || []).map((l) => (l.start === l.end ? `${l.start}` : `${l.start}-${l.end}`)).join(',');
+      return `${t.alias}:${t.path}${lines ? ':' + lines : ''}${t.section ? ` "${t.section}"` : ''}`;
+    }
     default: return '';
   }
 }

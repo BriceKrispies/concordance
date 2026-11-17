@@ -11,13 +11,18 @@
 //! 7. heuristic vague wording -> `ambiguous`
 //! 8. semantic `agrees`, challenged and upheld (or unchallenged for low-impact claims) -> `verified`
 //! 9. valid structural support of strength >= Strong covering the claim -> `verified`
-//! 10. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected)
-//! 11. otherwise -> `unverified` (missing evidence)
+//! 10. a cited path that matches several files -> `ambiguous`
+//! 11. cited code changed at the configured `compare` revision -> `stale` (citation drift)
+//! 12. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected)
+//! 13. otherwise -> `unverified` (missing evidence)
 
+use crate::citation::is_citation_check;
 use crate::text::spec_citation;
 use crate::BatchContext;
 use concordance_core::doc::{Authority, Claim, ClaimKind, Document, Modality};
-use concordance_core::evidence::{Evidence, Method, MethodKind, Stance, Strength};
+use concordance_core::evidence::{
+    Evidence, Method, MethodKind, Stance, Strength, StructuralCheck,
+};
 use concordance_core::finding::{
     EvidenceQuality, Finding, FindingCategory, FindingStatus, FindingSubject, Lifecycle, Proposal,
     ResolutionAction, Severity,
@@ -92,7 +97,19 @@ pub fn claim_finding(
     };
     let strong_contra = structural(Stance::Contradicts, Strength::Strong);
     let moderate_contra = structural(Stance::Contradicts, Strength::Moderate);
-    let strong_support = structural(Stance::Supports, Strength::Strong);
+    // Citation support says where a fact came from, not that the code satisfies the claim.
+    let strong_support: Vec<&Evidence> = structural(Stance::Supports, Strength::Strong)
+        .into_iter()
+        .filter(|e| !is_citation_check(e))
+        .collect();
+    let citation_check = |check: StructuralCheck| -> Option<&Evidence> {
+        valid.iter().copied().find(|e| {
+            e.stance == Stance::Inconclusive
+                && matches!(e.method, Method::Structural { check: c } if c == check)
+        })
+    };
+    let ambiguous_citation = citation_check(StructuralCheck::CitationPath);
+    let drifted_citation = citation_check(StructuralCheck::CitationDrift);
     let tests = |stance: Stance| -> Vec<&Evidence> {
         valid
             .iter()
@@ -265,6 +282,22 @@ pub fn claim_finding(
             },
             quality: quality_of(top.strength),
             headline: format!("Structural analysis supports this claim: {}", top.summary),
+        }
+    } else if let Some(e) = ambiguous_citation {
+        Decision {
+            status: FindingStatus::Ambiguous,
+            category: FindingCategory::UnclearDocumentation,
+            confidence: 0.6,
+            quality: EvidenceQuality::Weak,
+            headline: format!("A citation does not name one file: {}", e.summary),
+        }
+    } else if let Some(e) = drifted_citation {
+        Decision {
+            status: FindingStatus::Stale,
+            category: FindingCategory::CitationDrift,
+            confidence: 0.8,
+            quality: EvidenceQuality::Strong,
+            headline: format!("Cited code changed since the cited revision: {}", e.summary),
         }
     } else if !moderate_contra.is_empty()
         || sem_verdict == Some("disagrees")
@@ -565,6 +598,7 @@ fn title_for(status: FindingStatus, category: FindingCategory, claim: &Claim) ->
     let prefix = match (status, category) {
         (FindingStatus::Violated, FindingCategory::StructuralContradiction) => "Contradicted",
         (FindingStatus::Violated, _) => "Likely violated",
+        (FindingStatus::Stale, FindingCategory::CitationDrift) => "Cited code changed",
         (FindingStatus::Stale, _) => "Evidence stale",
         (FindingStatus::Ambiguous, _) => "Ambiguous",
         (FindingStatus::Verified, _) => "Verified",
@@ -608,6 +642,12 @@ pub fn proposals_for(
                 p(UpdateDescriptiveDocumentation, "If the code is authoritative, update the document.", true, &spec_target),
             ],
         },
+        FindingStatus::Stale if category == FindingCategory::CitationDrift => vec![p(
+            UpdateDescriptiveDocumentation,
+            "Re-read the cited code at the compare revision; then update the statement, or move the citation to the newer revision.",
+            authority == Authority::Normative,
+            &spec_target,
+        )],
         FindingStatus::Stale => vec![p(
             GatherStrongerEvidence,
             if semantic_enabled { "Re-run semantic analysis against the current revision." } else { "Enable semantic analysis to re-establish the invalidated evidence." },
@@ -696,6 +736,119 @@ pub fn prose_finding(
         crate_name: None,
         module: None,
     }
+}
+
+/// Finding for one citation in non-claim prose, from all of its evidence. `None` when
+/// the citation resolved and did not drift.
+pub fn citation_prose_finding(
+    doc: &Document,
+    subject: FindingSubject,
+    evidence: &[&Evidence],
+    ctx: &BatchContext,
+) -> Option<Finding> {
+    let text = match &subject {
+        FindingSubject::ProseReference { text, .. } => text.clone(),
+        _ => String::new(),
+    };
+    let pick = |stance: Stance, check: Option<StructuralCheck>| {
+        evidence.iter().copied().find(|e| {
+            e.stance == stance
+                && check.is_none_or(
+                    |c| matches!(e.method, Method::Structural { check } if check == c),
+                )
+        })
+    };
+    let informative = doc.authority.level == Authority::Informative;
+    let short = concordance_graph::truncate(&text, 60);
+    let (status, category, severity, title, top, confidence, why) =
+        if let Some(e) = pick(Stance::Contradicts, None) {
+            (
+                FindingStatus::Violated,
+                FindingCategory::StructuralContradiction,
+                if informative { Severity::Low } else { Severity::Medium },
+                format!("Broken citation `{short}` in {}", doc.path),
+                e,
+                0.95,
+                "a citation that names a missing file, or lines outside it, cannot be followed by a reader.",
+            )
+        } else if let Some(e) = pick(Stance::Inconclusive, Some(StructuralCheck::CitationPath)) {
+            (
+                FindingStatus::Ambiguous,
+                FindingCategory::UnclearDocumentation,
+                Severity::Low,
+                format!("Ambiguous citation `{short}` in {}", doc.path),
+                e,
+                0.6,
+                "the citation matches several files, so a reader cannot tell which one is meant.",
+            )
+        } else if let Some(e) = pick(Stance::Inconclusive, Some(StructuralCheck::CitationDrift)) {
+            (
+                FindingStatus::Stale,
+                FindingCategory::CitationDrift,
+                Severity::Low,
+                format!("Cited code changed: `{short}` in {}", doc.path),
+                e,
+                0.8,
+                "the text describes the cited revision; the code at the compare revision may behave differently.",
+            )
+        } else {
+            return None;
+        };
+    let notes: Vec<String> = evidence
+        .iter()
+        .filter(|e| e.id != top.id && e.stance != Stance::Supports)
+        .map(|e| format!("- {}", e.summary))
+        .collect();
+    let mut explanation = top.summary.clone();
+    if !notes.is_empty() {
+        explanation.push_str("\n\nAlso:\n");
+        explanation.push_str(&notes.join("\n"));
+    }
+    explanation.push_str(&format!("\n\nWhy it matters: {why}"));
+    let locations: Vec<SourceRange> = top.citations.iter().map(|c| c.range.clone()).collect();
+    let proposals = proposals_for(
+        status,
+        category,
+        doc.authority.level,
+        locations.clone(),
+        ctx.semantic_enabled,
+    );
+    let ids = |stance: Stance| -> Vec<_> {
+        evidence
+            .iter()
+            .filter(|e| e.stance == stance)
+            .map(|e| e.id.clone())
+            .collect()
+    };
+    Some(Finding {
+        id: subject.finding_id(),
+        subject,
+        status,
+        category,
+        severity,
+        title,
+        explanation,
+        claims: vec![],
+        symbols: vec![],
+        documents: vec![doc.id.clone()],
+        locations,
+        supporting: ids(Stance::Supports),
+        contradicting: ids(Stance::Contradicts),
+        confidence,
+        quality: quality_of(top.strength),
+        methods: vec![MethodKind::Structural],
+        limitations: vec![],
+        dependencies: top.dependencies.iter().map(|d| d.node.clone()).collect(),
+        proposals,
+        revision: ctx.revision,
+        introduced_in: ctx.revision,
+        introduced_by: ctx.changed_files.clone(),
+        first_seen: ctx.now,
+        last_updated: ctx.now,
+        lifecycle: Lifecycle::Open,
+        crate_name: None,
+        module: None,
+    })
 }
 
 /// Pairs of obligation claims stating incompatible numeric bounds on the same subject.

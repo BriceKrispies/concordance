@@ -222,10 +222,18 @@ fn main() -> ExitCode {
 }
 
 fn config_or_exit(c: &Common, host: Option<String>, port: Option<u16>) -> Result<Config, ExitCode> {
-    load_config(c, host, port).map_err(|e| {
+    let config = load_config(c, host, port).map_err(|e| {
         eprintln!("error: {e}");
         ExitCode::from(2)
-    })
+    })?;
+    // Unusable `[repos]` are configuration errors; warnings come later from the engine.
+    if !config.repos.is_empty() {
+        if let Err(e) = concordance_engine::git::check(&config) {
+            eprintln!("error: {e}");
+            return Err(ExitCode::from(2));
+        }
+    }
+    Ok(config)
 }
 
 async fn start_engine(
@@ -333,6 +341,7 @@ async fn scan(a: ScanArgs) -> ExitCode {
         Err(code) => return code,
     };
     let repo = config.repo_root.display().to_string();
+    let repos = config.repos.clone();
     let (engine, task, bus) = match start_engine(config, false).await {
         Ok(v) => v,
         Err(c) => return c,
@@ -388,7 +397,7 @@ async fn scan(a: ScanArgs) -> ExitCode {
     let status = engine.shared.status();
     let (rep, _) = engine
         .shared
-        .read(|m| report::build(m, &repo, &status.semantic, a.fail_on, a.include_resolved));
+        .read(|m| report::build(m, &repo, &status.semantic, a.fail_on, a.include_resolved, &repos));
     engine.shutdown();
     bus.close();
     let _ = task.await;
@@ -522,6 +531,7 @@ fn report_cmd(a: ReportArgs) -> ExitCode {
         &semantic,
         a.fail_on,
         a.include_resolved,
+        &config.repos,
     );
     match a.format {
         Format::Json => println!("{}", serde_json::to_string(&rep).unwrap_or_default()),

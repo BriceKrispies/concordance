@@ -186,7 +186,10 @@ pub fn reference_edge(
                 origin,
             ))
         }
-        ReferenceTarget::External { .. } | ReferenceTarget::OutsideRepo { .. } => None,
+        // Citations point into other repositories; `citation` checks them without edges.
+        ReferenceTarget::External { .. }
+        | ReferenceTarget::OutsideRepo { .. }
+        | ReferenceTarget::Citation { .. } => None,
     }
 }
 

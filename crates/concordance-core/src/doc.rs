@@ -241,6 +241,36 @@ pub enum ReferenceTarget {
     OutsideRepo { text: String },
     /// http(s)/mailto etc. Not checked.
     External { url: String },
+    /// `[ALIAS:path:lines]`: a file or directory in another git repository, at the
+    /// revision configured for `alias` under `[repos]`. Aliases with no configured
+    /// repository are not checked.
+    Citation {
+        /// As written (`APP`, `app`); mapped to a configured repository at reconcile time.
+        alias: String,
+        /// Repository-relative path, `/`-separated, as written.
+        path: String,
+        /// Cited line ranges, in order; empty for a whole file or directory.
+        lines: Vec<LineSpan>,
+        /// `"Section"` or `#anchor`: a heading in the cited Markdown file.
+        section: Option<String>,
+    },
+}
+
+/// An inclusive, 1-based line range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct LineSpan {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl std::fmt::Display for LineSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.start == self.end {
+            write!(f, "{}", self.start)
+        } else {
+            write!(f, "{}-{}", self.start, self.end)
+        }
+    }
 }
 
 /// How sure the extractor is that a code span is meant as a code reference.
