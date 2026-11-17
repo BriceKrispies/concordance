@@ -16,11 +16,18 @@ use concordance_core::finding::{
 use concordance_core::graph::{EdgeKind, NodeRef};
 use concordance_graph::Model;
 
-fn in_test_code(s: &Symbol) -> bool {
+/// Test-only code: `#[cfg(test)]`, Rust `tests/`, `benches/`, `examples/`, and the
+/// TypeScript conventions (`test/`, `__tests__/`, `__mocks__/`, `*.test.ts`, `*.spec.ts`),
+/// which reach the symbol path as module segments.
+pub fn in_test_code(s: &Symbol) -> bool {
     s.cfg.iter().any(|c| c == "test")
-        || s.path
-            .iter()
-            .any(|p| p == "tests" || p == "benches" || p == "examples")
+        || s.path.iter().any(|p| {
+            matches!(
+                p.as_str(),
+                "test" | "tests" | "benches" | "examples" | "__tests__" | "__mocks__"
+            ) || p.ends_with(".test")
+                || p.ends_with(".spec")
+        })
         || s.attributes.iter().any(|a| a.contains("test"))
 }
 
