@@ -586,6 +586,46 @@ fn describe(e: &Event) -> String {
     }
 }
 
+/// Add `specSha256` to the results text: the SHA-256 of the bytes of the one structured source the
+/// results were computed from, in lower-case hex. A reader can then tell results computed for the
+/// specification text it holds from results computed for an earlier text. It is left out when
+/// there are several sources, or the source cannot be read, and the reader then treats the
+/// revision as unknown.
+fn with_spec_hash(
+    text: String,
+    set: &concordance_engine::virtuals::VirtualSet,
+    config: &Config,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let [source] = set.sources.as_slice() else {
+        return text;
+    };
+    let Ok(bytes) = std::fs::read(config.repo_root.join(source.as_str())) else {
+        return text;
+    };
+    let hex: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    spec_hash_line(&text, &hex)
+}
+
+/// `text` with a `specSha256` line placed where sorted keys put it, before `tool`.
+fn spec_hash_line(text: &str, hex: &str) -> String {
+    match text.rfind(
+        "
+  \"tool\":",
+    ) {
+        Some(at) => format!(
+            "{}
+  \"specSha256\": \"{hex}\",{}",
+            &text[..at],
+            &text[at..]
+        ),
+        None => text.to_string(),
+    }
+}
+
 /// Write the Exegra results file for `model`, whose virtual documents are those of `set`.
 fn write_exegra_results(
     model: &concordance_graph::Model,
@@ -611,6 +651,7 @@ fn write_exegra_results(
         Some(exegra::rfc3339(secs))
     };
     let text = exegra::render(&results, env!("CARGO_PKG_VERSION"), generated_at.as_deref());
+    let text = with_spec_hash(text, set, config);
     std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 

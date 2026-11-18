@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+sha2.workspace = true
 concordance-core.workspace = true
 concordance-engine.workspace = true
 concordance-server.workspace = true
