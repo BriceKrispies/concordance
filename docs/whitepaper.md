@@ -4,8 +4,10 @@ Status: draft
 
 This white paper covers what Concordance promises to the people and agents who run it: the languages it
 understands, the test results it accepts, and the specification lint. The engine's internal design (graph,
-incremental reconciliation, events) is described in `docs/specifications/` and `docs/architecture.md`, which
-are descriptive.
+incremental reconciliation, events) is described in `docs/specifications/` and `docs/architecture.md`.
+`docs/specifications/` is normative: `concordance.toml` lists it under `[authority] normative`, so its
+statements are obligations that `scan` reconciles, while the lint reads only `docs/spec/` (`[lint] spec`).
+`docs/architecture.md` is not configured as normative and states no obligation of its own.
 
 ## Problem
 
@@ -63,8 +65,9 @@ agents make this worse, because they produce code faster than anyone can check i
 
 ## Open questions
 
-- **Q-1** Should `docs/specifications/` be rewritten into requirements over time, or stay descriptive?
-  Recommendation: stay descriptive, and grow `docs/spec/` umbrella by umbrella as behaviour is touched.
+- **Q-1** Should `docs/specifications/` be rewritten into requirements over time, or stay normative as it is?
+  Recommendation: grow `docs/spec/` umbrella by umbrella as behaviour is touched, and keep
+  `docs/specifications/` normative until each of its sections has an umbrella.
 
 ## Glossary
 

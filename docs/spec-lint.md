@@ -22,8 +22,9 @@ document it is `path:line (source.jsonc:1320 krn-002): error[R1] message`.
 - **Specification files:** the Markdown files under the spec roots whose authority is `normative`
   (set `[authority] normative = ["docs/spec/**"]`). Design documents are not linted. `[lint] spec`
   restricts this to the normative files matching its globs (repository-relative; default: all of them).
-  When no file is left the lint reports rule `R0`. Virtual documents of a structured source count as
-  files here.
+  When no file is left the lint reports rule `R0`. A document rendered from a structured source
+  (see below) is a specification whatever its RFC keyword count: its authority is normative
+  (`SpecFormat`) unless `[authority]` configures another level.
 - **White paper:** `[lint] whitepaper`, default `docs/whitepaper.md`. Its IDs `G-n`, `NG-n`, `B-n`, `K-n` (constraints),
   `C-n`, `D-n`, `Q-n` are bold openers (`- **G-1** ...`) or first table cells (`| B-1 | ... |`).
   Code fences and HTML comments are skipped. A missing white paper is one `R5` finding.
@@ -40,6 +41,9 @@ document under its `path` exactly as to a file, because the rendered text is in 
 
 - a requirement is `**<ref>** <statement>` followed by `Status:`, `Verify:`, `Cases:`, `Boundary:`,
   `Traces:`, `Depends:`, `Rationale:`, `Milestone:`, `Seam:` bullets for the properties present;
+- a `claims[]` entity whose `kind` is a misspelling of `requirement` (`Requirement`, `requirment`) is
+  rendered as prose and reported as rule `R0` (an error at the entity), since no requirement rule
+  would read it;
 - goals, non-goals, constraints, decisions and open questions are `- **G-1** ...` bullets, and boundaries
   and components are table rows `| B-1 | ... |` (so the white-paper reader finds them);
 - a `Cases:` file that is a virtual document (a case table of the source) is read from its rendered
@@ -63,17 +67,21 @@ The list items directly after the opener that start with `Verify:`, `Boundary:`,
 `Rationale:`, `Depends:`, `Status:`, `Cases:`, `Milestone:` or `Seam:` are the requirement's attributes. They are stored on the
 requirement (`RequirementRef.attributes` on its claims) and are not extracted as claims. Other list
 items under a requirement are ordinary prose and fall under R7. A requirement with `Status: retired`
-is only checked by R8.
+is only checked by R8. A requirement opener on the line after an attribute bullet, with no blank line
+between them, is a requirement of its own: it is not read as the bullet's continuation.
 
 The lint takes only a bold ID opening a paragraph or list item as a requirement. A requirement given
 by a heading (`## PSS-003`, see [requirements.md](requirements.md#in-the-specification)) is not one to
 this lint: its statement is read as prose, so R7 reports its `shall`/`must` words. `concordance scan`
 does treat heading IDs as requirements.
 
-Identifiers: R8 accepts exactly `PREFIX-NNN` (an upper-case prefix, a dash, three digits). `concordance
-scan` accepts what [requirements.md](requirements.md#in-the-specification) describes: one to four digits
-and a dotted sub-number (`P-1`, `LANG-006.3`). The two disagree, so `lint` reports as R8 the IDs that
-`scan` accepts. Concordance's own specification uses three digits throughout.
+Identifiers: one grammar, shared by `scan` and `lint` (`concordance_core::doc::is_requirement_id`). An ID
+is an upper-case prefix, a dash, a number of one to four digits, optionally a dotted sub-number and an
+optional one- or two-letter tag: `KRN-007`, `ARC-106`, `LANG-006.3`, `B-5`, `PII-T1`. A lower-case prefix,
+an underscore, or a number of five digits or more is malformed. The specification of Strata (`PREFIX-NNN`,
+three digits) and Concordance's own specification (`LINT-001`, `LANG-001`) are both valid under it. The
+grammar is the wider of the two that were in use: narrowing `scan` would silently drop requirements from
+results that already exist.
 
 ## Rules
 
@@ -83,11 +91,11 @@ and a dotted sub-number (`P-1`, `LANG-006.3`). The two disagree, so `lint` repor
 | R1 atomic | error | no SHALL/SHALL NOT/MUST in the statement; more than one; a semicolon; "and" joining two modal clauses (one finding per statement, naming every reason) |
 | R2 vague | error | a banned word in the statement: correctly, properly, efficient(ly), robust(ly), appropriate(ly), as expected, user-friendly, fast, secure(ly) |
 | R3 internals | error / warning | see below |
-| R4 provable | error | `Verify:` missing or not one of `example`, `property`, `scenario`, `budget`, `proof`, `conformance`; `Verify: conformance` without a `Cases:` list, or with a file that does not exist or has no `## Cases` table; `Cases:` on any method other than `conformance` and `proof` (on `proof` it is optional and checked the same way); never/always/for every/for all/for each with `example` or `scenario`; a time, size or count limit (`5 ms`, `10MB`, `90%`, `at most 3`, `no more than`, `fewer than`, `up to`, ...) with a method other than `budget`; with `[lint] require_milestone = true`, a missing `Milestone:`, a `Milestone:` or `Seam:` that is not a positive integer, or a `Seam:` greater than the `Milestone:` |
+| R4 provable | error | `Verify:` missing or not one of `example`, `property`, `scenario`, `budget`, `proof`, `conformance`; `Verify: conformance` without a `Cases:` list, or with a file that does not exist or has no `## Cases` table; `Cases:` on any method other than `conformance` and `proof` (on `proof` it is optional and checked the same way); never/always/whenever/for every/for all/for any/for each/`no ... ever` with `example` or `scenario`; a time, size or count limit (`5 ms`, `10MB`, `90%`, `five milliseconds`, `at most 3`, `at most three`, `no more than`, `fewer than`, `up to`, ...) with a method other than `budget`; with `[lint] require_milestone = true`, a missing `Milestone:`, a `Milestone:` or `Seam:` that is not a positive integer, or a `Seam:` greater than the `Milestone:` |
 | R5 traceable | error / warning | `Traces:` missing, naming no white-paper ID or an unknown one; `Boundary:` missing, without a B- ID or naming an unknown one; a goal `G-n` or constraint `K-n` that no (non-retired) requirement traces to, reported at the white paper line (errors). `Boundary:` with no backticked surface, and `Depends:` naming an undefined requirement (warnings) |
 | R6 said once | warning | two statements whose token sets (lower-cased, minus `the a an of to be is are shall must`) have Jaccard similarity of 0.8 or more; reported on the later one |
 | R7 normative text | error | `must`, `shall`, `never`, `always` or `required` in a paragraph, list item or quote that is not a requirement or one of its attributes. Headings, tables, code blocks and code spans are exempt |
-| R8 IDs | error | malformed ID (not `PREFIX-NNN`: upper-case prefix, dash, three digits); duplicate ID (also in the white paper); a prefix not owned by the file in the spec index, or a file the index does not list |
+| R8 IDs | error | malformed ID (not the one ID grammar, see Identifiers); duplicate ID (also in the white paper); a prefix not owned by the file in the spec index, or a file the index does not list |
 
 **R3 in detail.** A backticked span in the statement is checked when it looks like a code reference
 (an identifier, a `::` path, a call, a source file).
@@ -211,6 +219,9 @@ a table is a case added, with no change to the requirement.
 - A requirement declared by more than one proof (`Verifies: ID` on two items): an ambiguous,
   low-severity finding with `subject.kind = proof_rule`, `rule = multiple_proofs`, listing every
   proof.
+- A requirement ID opened in more than one document (a bold opener or a heading in each): an ambiguous
+  finding with `subject.kind = proof_rule`, `rule = duplicate_id`, listing the documents. The same ID
+  twice in one document is not reported by `scan`; `lint` reports it as R8.
 - A declaring proof whose resolved calls are all non-public symbols: a violated finding with
   `rule = bypasses_boundary`. Calls are followed through test scaffolding (tests, `cfg(test)` items,
   anything under `tests/`) so a helper that drives the public API counts as the proof. A proof with
@@ -218,3 +229,19 @@ a table is a case added, with no change to the requirement.
   Resolution is syntactic: calls through trait objects and closures are not followed, and a method call
   matched by name alone (`x.name()` where the receiver's type is not known, `Resolution::NameOnly` in the
   graph) does not count as reaching that symbol.
+
+## Limits
+
+These are what the rules do not establish. Each is a gap in the check, not a rule that passes.
+
+- **S2 budget row** checks that a `budget` requirement has a row in the budget-measurement table
+  naming its ID. It does not read the row's measured value or compare it with the statement's bound.
+- **R4 limits** read digits and the number words `zero` to `billion` before a unit or after a limit
+  phrase. `a second` and `half a second` are not read, and `one` after a limit phrase is not
+  (`at most one`, `at least one retry`), because `at least one` is usually an existence.
+- **R4 quantifiers** are the words listed in the table. A universal claim phrased otherwise (`each`
+  alone, `all`, `every time`) is not read.
+- **R5 traceability** checks that `Traces:` names a white-paper ID; it does not check that the
+  requirement actually serves that goal.
+- **Structured sources** are read from the rendered text and from the entities' `kind`. A misspelling
+  of `requirement` is reported; any other `kind` is prose by design and is not reported.
