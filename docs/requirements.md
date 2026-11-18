@@ -272,8 +272,8 @@ that the results file is real output of those tests. Concordance cannot see eith
 | ignored, or no run reports the test (in its crate) | `unverified` |
 | no test declares `Verifies:` for it | `unverified`: "has no test" |
 
-A results file with no manifest is `stale`, not `verified` and not a weaker verified: the default is strict
-and there is no setting that accepts unrecorded results.
+A results file with no manifest is `stale`. There is no weaker "verified" status for it and no setting that
+accepts unrecorded results: the default is strict.
 
 ### Matching a result with its test
 
