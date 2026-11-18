@@ -15,13 +15,15 @@ pub mod gaps;
 pub mod lifecycle;
 pub mod link;
 pub mod structural;
+#[cfg(test)]
+mod tests;
 mod text;
 pub mod verification;
 
 use concordance_core::{RepoPath, Revision, Timestamp};
 
 /// Bump when reconciliation rules change, so persisted findings are re-derived.
-pub const RULES_VERSION: &str = "rules-8";
+pub const RULES_VERSION: &str = "rules-9";
 
 /// Filesystem existence probe for references that point outside the indexed roots.
 /// Implementations must only answer for paths inside the repository.

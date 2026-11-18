@@ -413,6 +413,7 @@ version = "0.1.0"
 dependencies = [
  "concordance-core",
  "concordance-graph",
+ "concordance-rust",
  "serde",
  "serde_json",
 ]

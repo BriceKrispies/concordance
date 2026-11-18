@@ -30,8 +30,7 @@ use concordance_core::evidence::{
 use concordance_core::finding::{
     EvidenceQuality, Finding, FindingCategory, FindingStatus, FindingSubject, Lifecycle, Severity,
 };
-use concordance_core::graph::EdgeKind;
-use concordance_core::graph::NodeRef;
+use concordance_core::graph::{EdgeKind, NodeRef, Resolution};
 use concordance_core::testrun::TestOutcome;
 use concordance_core::{ClaimId, SourceRange, SymbolId};
 use concordance_graph::Model;
@@ -250,6 +249,10 @@ pub fn proof_reach(model: &Model, proof: &Symbol) -> ProofReach {
         for id in &frontier {
             for e in model.edges_from(&NodeRef::Symbol(id.clone())) {
                 if e.kind != EdgeKind::Calls {
+                    continue;
+                }
+                // A method matched by name only is not evidence that the proof calls it.
+                if e.resolution == Resolution::NameOnly {
                     continue;
                 }
                 let Some(NodeRef::Symbol(t)) = &e.to else {

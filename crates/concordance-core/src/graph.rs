@@ -106,6 +106,10 @@ pub enum Resolution {
     Ambiguous { candidates: u32 },
     /// Lexical name similarity only.
     Lexical,
+    /// A method call (`expr.name()`) matched an indexed method by name alone: the receiver's
+    /// type is not known, so the edge says a method of that name exists, not that it is the
+    /// one called. Never counts as evidence that a proof reaches a symbol.
+    NameOnly,
     /// Nothing matched. `to` is `None`.
     Unresolved,
 }

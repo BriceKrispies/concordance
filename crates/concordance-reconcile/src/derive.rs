@@ -831,6 +831,7 @@ pub fn resolution_label(r: &Resolution) -> &'static str {
         Resolution::UniqueSuffix => "unique suffix",
         Resolution::Ambiguous { .. } => "ambiguous",
         Resolution::Lexical => "lexical",
+        Resolution::NameOnly => "name only",
         Resolution::Unresolved => "unresolved",
     }
 }

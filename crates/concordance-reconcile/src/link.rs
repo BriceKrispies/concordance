@@ -1,12 +1,12 @@
 //! Reference linking: documentation references and code relationships -> typed edges.
 
 use crate::FsProbe;
-use concordance_core::code::{CallTarget, Symbol, SymbolKind};
+use concordance_core::code::{CallTarget, Import, Symbol, SymbolKind};
 use concordance_core::doc::{
     Claim, ConstraintForm, ProseReference, Reference, ReferenceStrength, ReferenceTarget,
 };
 use concordance_core::graph::{Edge, EdgeKind, NodeRef, Resolution};
-use concordance_core::{DocumentId, FileId, RepoPath, SourceRange};
+use concordance_core::{DocumentId, FileId, RepoPath, SourceRange, SymbolId};
 use concordance_graph::{lexical_candidates, Model, Resolved};
 use std::collections::BTreeSet;
 
@@ -315,28 +315,21 @@ pub fn prose_edges(
 pub fn symbol_edges(model: &Model, sym: &Symbol) -> Vec<Edge> {
     let from = NodeRef::Symbol(sym.id.clone());
     let krate = sym.path.first().map(String::as_str);
+    let imports: &[Import] = model
+        .imports
+        .get(&sym.file)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     let mut out = Vec::new();
     for call in &sym.calls {
-        let (segments, text) = match &call.target {
-            CallTarget::Path { segments } => (segments.clone(), segments.join("::")),
-            CallTarget::Method { name } => (vec![name.clone()], format!(".{name}()")),
+        let text = match &call.target {
+            CallTarget::Path { segments } => segments.join("::"),
+            CallTarget::Method { name } => format!(".{name}()"),
         };
-        let resolved = model.resolve_path(&segments, krate);
-        let (to, res, conf) = match resolved {
-            Resolved::Exact(id) => (id, Resolution::Exact, 1.0),
-            Resolved::UniqueSuffix(id) => (id, Resolution::UniqueSuffix, 0.8),
-            // Method calls with many candidates are noise; keep small ambiguity sets only.
-            Resolved::Ambiguous(ids) if ids.len() <= 3 => {
-                let n = ids.len() as u32;
-                (
-                    ids[0].clone(),
-                    Resolution::Ambiguous { candidates: n },
-                    1.0 / n as f32,
-                )
-            }
-            _ => continue,
+        let Some((to, res, conf)) = resolve_call(model, imports, &call.target, krate) else {
+            continue;
         };
-        if to == sym.id || !model.symbols.get(&to).is_some_and(|t| t.kind.is_callable()) {
+        if to == sym.id {
             continue;
         }
         let cfg = model
@@ -382,6 +375,85 @@ pub fn symbol_edges(model: &Model, sym: &Symbol) -> Vec<Edge> {
         }
     }
     dedup(out)
+}
+
+fn is_callable_symbol(model: &Model, id: &SymbolId) -> bool {
+    model.symbols.get(id).is_some_and(|s| s.kind.is_callable())
+}
+
+/// Expands a call's first segment through the file's `use` items: with `use a::b::c;` the
+/// call `c(..)` means `a::b::c`, and `use a::b as d;` makes `d::x()` mean `a::b::x`. Glob
+/// imports name no segment, so they are not expanded.
+fn expand_import(imports: &[Import], segments: &[String]) -> Option<Vec<String>> {
+    let first = segments.first()?;
+    let imp = imports.iter().find(|i| {
+        let bound = match (&i.alias, i.path.last()) {
+            (Some(alias), _) => alias.as_str(),
+            (None, Some(last)) => last.as_str(),
+            (None, None) => return false,
+        };
+        !i.glob && bound == first
+    })?;
+    let mut out = imp.path.clone();
+    out.extend(segments[1..].iter().cloned());
+    Some(out)
+}
+
+/// Resolves one call site to a callable symbol and labels how sure the link is. Only
+/// callables are candidates: a module or field that shares the name is never a call target.
+fn resolve_call(
+    model: &Model,
+    imports: &[Import],
+    target: &CallTarget,
+    krate: Option<&str>,
+) -> Option<(SymbolId, Resolution, f32)> {
+    match target {
+        // The receiver's type is not known, so the method name is all there is to match. The
+        // edge is labelled `NameOnly`: it does not say which method was called.
+        CallTarget::Method { name } => {
+            let mut ids: Vec<SymbolId> = match model.resolve_path(std::slice::from_ref(name), krate)
+            {
+                Resolved::Exact(id) | Resolved::UniqueSuffix(id) => vec![id],
+                Resolved::Ambiguous(ids) => ids,
+                _ => return None,
+            };
+            ids.retain(|id| is_callable_symbol(model, id));
+            // Method calls with many candidates are noise; keep small ambiguity sets only.
+            let n = ids.len();
+            if n == 0 || n > 3 {
+                return None;
+            }
+            Some((ids.swap_remove(0), Resolution::NameOnly, 0.5 / n as f32))
+        }
+        CallTarget::Path { segments } => {
+            let expanded = expand_import(imports, segments);
+            let path = expanded.as_deref().unwrap_or(segments.as_slice());
+            let single = |id: SymbolId, res: Resolution, conf: f32| {
+                is_callable_symbol(model, &id).then_some((id, res, conf))
+            };
+            match model.resolve_path(path, krate) {
+                Resolved::Exact(id) => single(id, Resolution::Exact, 1.0),
+                Resolved::UniqueSuffix(id) => single(id, Resolution::UniqueSuffix, 0.8),
+                Resolved::Ambiguous(mut ids) => {
+                    ids.retain(|id| is_callable_symbol(model, id));
+                    match ids.len() {
+                        0 => None,
+                        1 => Some((ids.swap_remove(0), Resolution::UniqueSuffix, 0.8)),
+                        n if n <= 3 => {
+                            let n = n as u32;
+                            Some((
+                                ids.swap_remove(0),
+                                Resolution::Ambiguous { candidates: n },
+                                1.0 / n as f32,
+                            ))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        }
+    }
 }
 
 fn dedup(mut edges: Vec<Edge>) -> Vec<Edge> {
