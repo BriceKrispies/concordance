@@ -66,7 +66,9 @@ documents*; nothing is written to disk.
 | boundary, component | a table row `\| <ref> \| <name> \| <interfaceKind or category> \| <usedBy or purpose> \|`, preceded by a header and separator row when the previous line is not a row of the same table |
 | any other entity (term, release stage, milestone, ...) | one paragraph of its main text properties: `<name, title or term>: <purpose, statement, definition, proves, detail, exitEvidence, description>` |
 
-**The Exegra requirement profile.** A requirement is a `claims[]` entity with `"kind":"requirement"`.
+**The Exegra requirement profile.** A requirement is a `claims[]` entity with `"kind":"requirement"`. Any other `kind` (`"Requirement"`,
+`"requirment"`) is not a requirement: it renders as a paragraph of prose and is checked as prose, so
+a statement with an upper-case modal gets an R7 error and one without gets no finding at all.
 These properties are read, and an attribute bullet is written only when its property is present, in
 this order:
 
@@ -104,8 +106,8 @@ file, the line of the entity and the entity id. See [cli.md](cli.md) and [api.md
 
 **Problems in the source** (a marker naming an unknown entity, a section naming an unknown document,
 duplicate document paths, a `cases` document without a case table, a requirement without `ref` or
-`statement`, a duplicate entity id, a line that is more than one marker, a reference that does not
-resolve, a `casesPath`) are reported on every scan as system events and by `concordance lint` as rule
+`statement`, a requirement that no section marker places, a duplicate entity id, a line that is more
+than one marker, a reference that does not resolve, a `casesPath`) are reported on every scan as system events and by `concordance lint` as rule
 `R0`: never silently dropped.
 
 **Results for Exegra.** `concordance scan --exegra-results FILE` and `concordance report
@@ -235,4 +237,41 @@ a new run re-derives every requirement finding.
 | no test declares `Verifies:` for it | `unverified`: "has no test" |
 
 The freshness rule is conservative: any change to an indexed source file after the run makes all
-results outdated, since Concordance cannot know which code a test exercised.
+results outdated, since Concordance cannot know which code a test exercised. It compares file
+modification times, not contents, and only source files are compared: an edit to the specification
+after the run does not make a result outdated.
+
+## What "verified" establishes
+
+`verified` means one thing: a test whose `///` doc comment (Rust) or the comment the language section
+above names declares `Verifies: ID` passed in a recorded run, and that run was recorded after the last
+modification of an indexed source file. It does not establish any of the following, and nothing else in Concordance checks them:
+
+- **The test's body is not inspected.** An empty test, one that asserts `true`, or one that calls only
+  an unrelated public function, verifies its requirement if the run reports it passed. The only
+  body check is that a declaring proof which calls nothing but non-public code is reported
+  (`bypasses_boundary`); a proof with no resolved call at all is not reported.
+- **The declaration is taken as written.** `Verifies:` is the author's claim. A test may declare
+  several requirements, and a declaration of an ID that the specification gives twice is not reported.
+- **Results are matched by name, not by crate or by file.** A result line names a test by its module
+  path (libtest, nextest) or title (JUnit, vitest). A line for a test of another crate with the same
+  path, or a line printed inside another test's captured output (`test x ... ok`), can supply the
+  result for a test that did not run. A test in a source file that no module declares is still
+  indexed as a test.
+- **Results are trusted.** The results file is read as given: nothing binds it to the code it
+  tested, and a file written after an edit counts as current whatever code it describes. A JUnit
+  test cut off before its end is recorded as no result (not as passed); other truncated outputs
+  are read only for the lines they contain.
+- **Attributes are not evaluated.** `#[ignore]` is respected through its result line. `cfg`
+  predicates are not evaluated, so a test disabled by `cfg` is still a declaring test.
+- **The specification text is not compared.** Editing a requirement's statement after a run does not
+  make its result outdated, so a passing run of the old wording stays `verified` for the new one.
+- **Lean theorems are compile checks.** A tagged theorem is `verified` when its module built and no
+  `sorry` or error lies in its lines. The statement is not compared with the requirement, `True` and
+  axioms are not detected, and a log that says `Build completed successfully` verifies every tagged
+  theorem, including those of modules that build did not include.
+
+A `verified` status therefore says that a declared test passed on the code as it was when the run
+was recorded. Whether the test checks the requirement is a judgement the status does not make.
+`--fail-on proven` gives no assurance about `verified` requirements either: it fails only on open
+structural contradictions and failing recorded tests of started milestones.
