@@ -51,7 +51,7 @@ Missing Claude is never treated as successful semantic verification. The report'
 | `verified` | Evidence establishes the claim: a matching documented signature, a satisfied deterministic constraint, a passing test in a run recorded after the last source change, or a semantic agreement that a challenge upheld. |
 | `violated` | Contradicted: a structural contradiction (a dangling reference, a differing signature, a constant outside a documented bound, an unsafe or panic site where the claim forbids one, a forbidden dependency), a failing test, a proof-rule breach, or a semantic contradiction that survived a challenge. Its `category` says which. |
 | `unverified` | Nothing establishes the claim either way. This includes a test result recorded before a source change (re-run the tests), a requirement no test declares `Verifies:` for, and a suspected contradiction that has not been confirmed. |
-| `planned` | An `unverified` requirement whose milestone is not in `[gate] started_milestones`. |
+| `planned` | An `unverified` requirement whose milestone is not in `[gate] started_milestones`. A requirement with evidence keeps its own status. |
 | `stale` | Evidence the status rests on was invalidated and not re-established (semantic evidence after a change), or cited code changed at the `compare` revision (`citation_drift`). Never a gate failure. |
 | `ambiguous` | The claim cannot be read one way: vague or self-contradictory wording, conflicting bounds, a requirement declared by more than one proof, or a semantic `ambiguous` verdict. |
 | `undocumented` | Implementation behaviour (panics, error returns, environment reads, missing contract on public API) that no claim covers. Reported as `missing_documentation`. |
