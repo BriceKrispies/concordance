@@ -126,13 +126,11 @@ fn method_call_matched_by_name_is_not_proof_reach() {
     let proof = named(&model, "projection_boundary", SymbolKind::Function);
     let parser_next = named(&model, "next", SymbolKind::Method);
 
-    // `map.values().next()` is a name-only edge to the unrelated private `Parser::next`.
-    let next_edge = model
+    // `map.values().next()` matches the unrelated private `Parser::next` by name only. A private
+    // item of another crate is never a call target, so no edge of the proof leads to it.
+    assert!(model
         .edges_from(&NodeRef::Symbol(proof.id.clone()))
-        .find(|e| e.target_text == ".next()")
-        .expect("the method call has an edge");
-    assert_eq!(next_edge.resolution, Resolution::NameOnly);
-    assert_eq!(next_edge.to, Some(NodeRef::Symbol(parser_next.id.clone())));
+        .all(|e| e.to != Some(NodeRef::Symbol(parser_next.id.clone()))));
 
     // It is not counted as an internal the proof reaches; the public `project` is.
     let reach = proof_reach(&model, proof);
