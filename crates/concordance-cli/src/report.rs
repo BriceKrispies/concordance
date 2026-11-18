@@ -1,7 +1,7 @@
 //! Headless report: machine-readable JSON and human-readable text from one model.
 
 use concordance_core::config::GateConfig;
-use concordance_core::finding::{Counts, Finding, FindingCategory, FindingStatus};
+use concordance_core::finding::{Counts, Finding, FindingCategory, FindingStatus, FindingSubject};
 use concordance_core::virtual_doc::Origin;
 use concordance_core::{RepoPath, Revision, SourceRange};
 use concordance_engine::SemanticStatus;
@@ -18,6 +18,9 @@ pub enum FailOn {
     Proven,
     /// Any `violated` finding, including semantic contradictions that survived an adversarial challenge.
     Violated,
+    /// Everything `violated` fails on, and any requirement of a started milestone that is not
+    /// `verified` (no test, a stale or unrecorded result, a disqualified proof).
+    Unverified,
 }
 
 #[derive(Serialize)]
@@ -106,6 +109,28 @@ pub struct Gate {
     pub suspected_violations: usize,
     /// Open findings left out of the gate because their milestone is not started.
     pub ignored_unstarted: usize,
+    /// Requirements of started milestones that are not `verified` (counted by every mode;
+    /// only `--fail-on unverified` fails on them).
+    pub unverified_requirements: usize,
+}
+
+/// Requirement IDs of started milestones whose obligation claims are not all `verified`.
+fn unverified_requirements(m: &Model, gate: &GateConfig) -> usize {
+    let mut verified: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
+    for c in m.requirement_claims().filter(|c| c.is_obligation()) {
+        let Some(r) = &c.requirement else { continue };
+        if !gate.is_started(r.attributes.milestone_number()) {
+            continue;
+        }
+        let ok = m.findings_for_claim(&c.id).any(|f| {
+            f.is_open()
+                && f.status == FindingStatus::Verified
+                && matches!(&f.subject, FindingSubject::Claim { claim } if *claim == c.id)
+        });
+        let e = verified.entry(r.id.clone()).or_insert(true);
+        *e = *e && ok;
+    }
+    verified.values().filter(|v| !**v).count()
 }
 
 /// The valid `Milestone:` of the requirement a finding's first claim belongs to.
@@ -157,10 +182,12 @@ pub fn build(
     let proven = open_violated(Some(FindingCategory::StructuralContradiction))
         + open_violated(Some(FindingCategory::TestFailure));
     let suspected = open_violated(Some(FindingCategory::SuspectedSemanticContradiction));
+    let unverified = unverified_requirements(m, gate);
     let failed = match fail_on {
         FailOn::None => false,
         FailOn::Proven => proven > 0,
         FailOn::Violated => proven + suspected > 0,
+        FailOn::Unverified => proven + suspected + unverified > 0,
     };
     let semantic_active = semantic.enabled && semantic.available == Some(true);
     let coverage = if semantic_active {
@@ -189,6 +216,7 @@ pub fn build(
             proven_violations: proven,
             suspected_violations: suspected,
             ignored_unstarted,
+            unverified_requirements: unverified,
         },
         citations: concordance_engine::citation::summarize(m, repos),
         findings: findings
@@ -329,11 +357,12 @@ pub fn human(r: &Report, verbose: bool) -> String {
     if r.gate.fail_on != "none" {
         let _ = writeln!(
             out,
-            "Gate --fail-on {}: {} ({} proven, {} suspected violations)",
+            "Gate --fail-on {}: {} ({} proven, {} suspected violations, {} unverified requirements)",
             r.gate.fail_on,
             if r.gate.failed { "FAILED" } else { "passed" },
             r.gate.proven_violations,
-            r.gate.suspected_violations
+            r.gate.suspected_violations,
+            r.gate.unverified_requirements
         );
         if r.gate.ignored_unstarted > 0 {
             let _ = writeln!(

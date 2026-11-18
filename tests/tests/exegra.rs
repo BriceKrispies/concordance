@@ -33,10 +33,9 @@ fn config(repo: &Path, state: &Path, spec_roots: &[&str]) -> Config {
     .unwrap()
 }
 
-/// A copy of the fixture, with a recorded run that is newer than every source file.
+/// A copy of the fixture with its recorded test run in place (bound to the content by `scan`).
 fn fixture(name: &str) -> PathBuf {
     let repo = fixture_copy(name);
-    std::thread::sleep(std::time::Duration::from_millis(50));
     std::fs::write(repo.join("results/passed.txt"), PASSED).unwrap();
     repo
 }
@@ -46,6 +45,7 @@ async fn scan(repo: &Path, roots: &[&str]) -> (Config, Model) {
     let config = config(repo, &state, roots);
     let r = start(config.clone(), None, 8192).await;
     r.idle().await;
+    record_and_rescan(&r, &config).await;
     let model = r.engine.shared.read(|m| m.clone()).0;
     r.stop().await;
     (config, model)

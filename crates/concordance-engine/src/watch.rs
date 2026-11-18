@@ -59,7 +59,7 @@ pub fn start(config: &Config, engine: mpsc::Sender<Command>) -> Result<WatchHand
     }
     // Test-run outputs may live anywhere (often outside the repository): watch their
     // directories, non-recursively, and keep only events for the files themselves.
-    let results: Vec<PathBuf> = config.test_results.clone();
+    let results: Vec<PathBuf> = crate::runs::watched_files(&config.test_results);
     let mut dirs: Vec<PathBuf> = results
         .iter()
         .filter_map(|p| p.parent().map(PathBuf::from))

@@ -18,13 +18,21 @@
 //!
 //! Names are normalized to `::`-separated segments: `describe > case` -> `describe::case`.
 //!
-//! A run is evidence about the code as it was when the run was recorded. The engine
-//! compares the output file's modification time with the analyzed sources: results that
-//! predate a source change are reported as outdated, never as current.
+//! A run is evidence about the code as it was when the run happened. Concordance cannot see
+//! that, so the user records it: `concordance record`, run right after the tests, writes a
+//! [`RunManifest`] beside each results file holding the hash of every source file and of every
+//! requirement statement at that moment. The engine compares the manifest with the current
+//! content; a result is current only when the manifest matches the results file and nothing it
+//! covers has changed. A results file with no manifest is `unrecorded` and verifies nothing.
+//! Modification times are not used.
+//!
+//! The libtest text and nextest formats also say which crate a result line belongs to
+//! (`Running unittests src/lib.rs (...)`, the nextest binary id). That is kept as a [`RunScope`]
+//! so a result line is matched with the crate it was run in, not by test name alone.
 
 use crate::{ContentHash, RepoPath, SourceRange, Timestamp};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -44,26 +52,101 @@ impl TestOutcome {
     }
 }
 
+/// The manifest `concordance record` writes beside a results file: what the sources and the
+/// specification looked like when the user recorded the run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunManifest {
+    pub tool: String,
+    pub format: u32,
+    /// File name of the results file the manifest describes (for people reading it).
+    pub results_file: String,
+    /// Hash of the results file's text when it was recorded.
+    pub results_hash: ContentHash,
+    /// When it was recorded, milliseconds since the epoch (informational, never compared).
+    pub recorded_at_ms: u64,
+    /// Hash of every indexed source file, by repository path.
+    pub sources: BTreeMap<String, ContentHash>,
+    /// Hash of the statement text of every requirement, by requirement ID.
+    pub statements: BTreeMap<String, ContentHash>,
+}
+
+pub const MANIFEST_FORMAT: u32 = 1;
+
+/// Whether a results file is bound to the content it was run on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunBinding {
+    /// A manifest exists and describes this results file.
+    Recorded,
+    /// No usable manifest; the reason says what to do. Such a run verifies nothing.
+    Unrecorded(String),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TestRun {
     /// The output file, as configured (absolute).
     pub path: String,
-    /// Modification time of the output file: when the run was recorded.
+    /// Modification time of the output file (informational: freshness never uses it).
     pub modified: Timestamp,
     pub content_hash: ContentHash,
     /// Test name (`::`-separated, as the harness printed it) -> outcome. A name reported
     /// more than once keeps its worst outcome.
     pub results: BTreeMap<String, TestOutcome>,
-    /// Indexed source files modified after the run was recorded.
-    pub newer_sources: usize,
+    /// Test name -> the crates whose test binaries reported it, for the formats that say so.
+    /// A name with no entry, or with `""` among its crates, was also reported without a crate.
+    pub crates: BTreeMap<String, BTreeSet<String>>,
+    pub binding: RunBinding,
+    /// Indexed source files whose content differs from the manifest (changed, added or
+    /// removed since the run was recorded).
+    pub changed_sources: usize,
     /// One of them, for explanations.
-    pub newest_source: Option<RepoPath>,
+    pub changed_example: Option<RepoPath>,
+    /// Requirement IDs whose statement text differs from the manifest (or is not in it).
+    pub changed_statements: BTreeSet<String>,
 }
 
 impl TestRun {
+    /// Whether the run no longer describes the current code: unrecorded, or a source file
+    /// differs from the manifest. Statements are checked per requirement.
     pub fn is_outdated(&self) -> bool {
-        self.newer_sources > 0
+        self.binding != RunBinding::Recorded || self.changed_sources > 0
     }
+
+    pub fn is_unrecorded(&self) -> bool {
+        matches!(self.binding, RunBinding::Unrecorded(_))
+    }
+
+    /// Whether the statement of requirement `id` changed since the run was recorded.
+    pub fn statement_changed(&self, id: &str) -> bool {
+        self.changed_statements.contains(id)
+    }
+
+    /// Whether a result for `name` may apply to a test of `krate`: the crates that reported
+    /// the name include it, or the name was also reported without a crate.
+    pub fn reported_in(&self, name: &str, krate: Option<&str>) -> bool {
+        match self.crates.get(name) {
+            None => true,
+            Some(set) => set.contains("") || krate.is_some_and(|k| set.contains(k)),
+        }
+    }
+}
+
+/// Where a result line says it ran.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RunScope {
+    /// Source file of the test target, from `Running unittests src/lib.rs (...)`.
+    pub file: Option<String>,
+    /// Binary name from the parenthesis (`concordance_core`, `boundary`).
+    pub binary: Option<String>,
+    /// Package name (normalized), from a nextest binary id or `Doc-tests <crate>`.
+    pub package: Option<String>,
+}
+
+/// Results with the scopes they were reported under.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Parsed {
+    pub results: BTreeMap<String, TestOutcome>,
+    /// Name -> scopes it was seen under; `None` is a sighting that named no scope.
+    pub scopes: BTreeMap<String, BTreeSet<Option<RunScope>>>,
 }
 
 /// An indexed test symbol, handed to a language plugin so it can turn a build log
@@ -74,25 +157,35 @@ pub struct TestSite {
     pub name: String,
     pub file: RepoPath,
     pub range: SourceRange,
+    /// Module path of the file inside its package (`Volume/Mixer.lean` -> `["Volume","Mixer"]`).
+    pub module: Vec<String>,
 }
 
 /// Parse any mix of the accepted formats. Unrecognized lines are ignored.
 pub fn parse(text: &str) -> BTreeMap<String, TestOutcome> {
-    let mut out: BTreeMap<String, TestOutcome> = BTreeMap::new();
-    let mut put = |name: String, o: TestOutcome| {
-        let e = out.entry(name).or_insert(o);
+    parse_scoped(text).results
+}
+
+/// Like [`parse`], and keeps the scope (crate or test target) each result line was printed in
+/// where the format says it.
+pub fn parse_scoped(text: &str) -> Parsed {
+    let mut out = Parsed::default();
+    let mut put = |name: String, o: TestOutcome, scope: Option<RunScope>| {
+        out.scopes.entry(name.clone()).or_default().insert(scope);
+        let e = out.results.entry(name).or_insert(o);
         *e = (*e).max(o);
     };
     if text.contains("<testcase") {
         for (name, o) in parse_junit(text) {
-            put(name, o);
+            put(name, o, None);
         }
     }
     if text.contains("<UnitTestResult") {
         for (name, o) in parse_trx(text) {
-            put(name, o);
+            put(name, o, None);
         }
     }
+    let mut current: Option<RunScope> = None;
     // libtest prints a failing test's captured output after `failures:` under
     // `---- name stdout ----` headers, up to the next `failures:` list or `test result:` line.
     // Lines in there are the program's own output (a test may print a libtest line), not results.
@@ -104,16 +197,87 @@ pub fn parse(text: &str) -> BTreeMap<String, TestOutcome> {
         } else if l == "failures:" || l.starts_with("test result:") {
             captured = false;
         }
+        if !captured {
+            if let Some(scope) = parse_running(l) {
+                current = Some(scope);
+                continue;
+            }
+        }
         let libtest = if captured { None } else { parse_libtest(l) };
-        if let Some((name, o)) = parse_json(l)
-            .or(libtest)
-            .or_else(|| parse_nextest(l))
-            .or_else(|| parse_vitest(l))
-        {
-            put(name, o);
+        if let Some((name, o)) = libtest {
+            put(name, o, current.clone());
+        } else if let Some((name, o)) = parse_json(l).or_else(|| parse_vitest(l)) {
+            put(name, o, None);
+        } else if let Some((name, o, package)) = parse_nextest_scoped(l) {
+            let scope = RunScope {
+                file: None,
+                binary: None,
+                package: Some(package),
+            };
+            put(name, o, Some(scope));
         }
     }
     out
+}
+
+/// `crate-name` -> `crate_name`.
+pub fn normalize_crate(s: &str) -> String {
+    s.replace('-', "_")
+}
+
+/// `target/debug/deps/concordance_core-1a2b3c4d5e6f7a8b.exe` -> `concordance_core`.
+fn binary_stem(p: &str) -> String {
+    let name = p.rsplit(['/', '\\']).next().unwrap_or(p);
+    let name = name.strip_suffix(".exe").unwrap_or(name);
+    match name.rsplit_once('-') {
+        Some((head, tail))
+            if tail.len() >= 8
+                && tail.chars().all(|c| c.is_ascii_hexdigit())
+                && !head.is_empty() =>
+        {
+            head.to_string()
+        }
+        _ => name.to_string(),
+    }
+}
+
+/// A cargo `Running unittests src/lib.rs (target/debug/deps/x-hash)` or `Doc-tests x` line.
+fn parse_running(l: &str) -> Option<RunScope> {
+    if let Some(rest) = l.strip_prefix("Doc-tests ") {
+        let name = rest.trim();
+        return (!name.is_empty() && !name.contains(' ')).then(|| RunScope {
+            file: None,
+            binary: None,
+            package: Some(normalize_crate(name)),
+        });
+    }
+    let rest = l.strip_prefix("Running ")?;
+    let (target, binary) = match rest.rfind(" (") {
+        Some(i) if rest.ends_with(')') => (&rest[..i], Some(&rest[i + 2..rest.len() - 1])),
+        _ => (rest, None),
+    };
+    let target = target.strip_prefix("unittests ").unwrap_or(target).trim();
+    let file = target.ends_with(".rs").then(|| target.replace('\\', "/"));
+    let binary = match (binary, &file) {
+        (Some(b), _) => Some(binary_stem(b)),
+        // The older `Running target/debug/deps/x-hash` form names only the binary.
+        (None, None) => Some(binary_stem(target)),
+        (None, Some(_)) => None,
+    };
+    Some(RunScope {
+        file,
+        binary,
+        package: None,
+    })
+}
+
+/// A nextest result and the package named by the first segment of its binary id.
+fn parse_nextest_scoped(l: &str) -> Option<(String, TestOutcome, String)> {
+    let (name, o) = parse_nextest(l)?;
+    let rest = l.split_once(']')?.1;
+    let binary = rest.split_whitespace().next()?;
+    let package = binary.split("::").next().unwrap_or(binary);
+    Some((name, o, normalize_crate(package)))
 }
 
 fn unescape(s: &str) -> String {
@@ -513,5 +677,93 @@ test result: FAILED. 1 passed; 1 failed
         assert_eq!(r.get("done"), Some(&TestOutcome::Passed));
         assert_eq!(r.get("cut"), None);
         assert_eq!(r.len(), 1);
+    }
+
+    #[test]
+    fn libtest_lines_keep_the_target_that_printed_them() {
+        let text = r"     Running unittests src/lib.rs (target/debug/deps/lexer-0123456789abcdef)
+test a::one ... ok
+     Running tests/boundary.rs (target\debug\deps\boundary-fedcba9876543210.exe)
+test two ... ok
+   Doc-tests lexer
+test three ... ok
+";
+        let p = parse_scoped(text);
+        let scope =
+            |name: &str| -> Vec<Option<RunScope>> { p.scopes[name].iter().cloned().collect() };
+        assert_eq!(
+            scope("a::one"),
+            vec![Some(RunScope {
+                file: Some("src/lib.rs".into()),
+                binary: Some("lexer".into()),
+                package: None
+            })]
+        );
+        assert_eq!(
+            scope("two"),
+            vec![Some(RunScope {
+                file: Some("tests/boundary.rs".into()),
+                binary: Some("boundary".into()),
+                package: None
+            })]
+        );
+        assert_eq!(
+            scope("three"),
+            vec![Some(RunScope {
+                file: None,
+                binary: None,
+                package: Some("lexer".into())
+            })]
+        );
+    }
+
+    #[test]
+    fn nextest_names_the_package_and_other_formats_name_none() {
+        let p = parse_scoped(
+            "        PASS [   0.004s] my-crate::suite_1a lexical::nests
+✓ src/m.test.ts > D > case 3ms
+",
+        );
+        assert_eq!(
+            p.scopes["suite_1a::lexical::nests"]
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![Some(RunScope {
+                file: None,
+                binary: None,
+                package: Some("my_crate".into())
+            })]
+        );
+        assert_eq!(
+            p.scopes["D::case"].iter().cloned().collect::<Vec<_>>(),
+            vec![None]
+        );
+    }
+
+    #[test]
+    fn a_result_applies_only_to_the_crates_that_reported_it() {
+        let mut run = TestRun {
+            path: "r.txt".into(),
+            modified: Timestamp(0),
+            content_hash: ContentHash::of_str(""),
+            results: BTreeMap::new(),
+            crates: BTreeMap::new(),
+            binding: RunBinding::Recorded,
+            changed_sources: 0,
+            changed_example: None,
+            changed_statements: BTreeSet::new(),
+        };
+        run.crates
+            .insert("t".into(), BTreeSet::from(["lexer".to_string()]));
+        assert!(run.reported_in("t", Some("lexer")));
+        assert!(!run.reported_in("t", Some("other")));
+        assert!(!run.reported_in("t", None));
+        // A name nothing scoped applies anywhere.
+        assert!(run.reported_in("unscoped", Some("other")));
+        // A scope that names no crate of the repository applies to none.
+        run.crates
+            .insert("u".into(), BTreeSet::from(["?".to_string()]));
+        assert!(!run.reported_in("u", Some("lexer")));
     }
 }

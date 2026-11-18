@@ -7,6 +7,10 @@
 use crate::{ContentHash, FileId, RepoPath, SourceRange, SymbolId};
 use serde::{Deserialize, Serialize};
 
+/// Synthetic attribute on a Rust module symbol declared out of line (`mod x;`), so the graph can
+/// follow the module tree from a crate target to the files it compiles.
+pub const EXTERNAL_MOD_ATTRIBUTE: &str = "#[mod_declaration]";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolKind {
@@ -164,6 +168,9 @@ pub enum FactKind {
     MacroInvocation,
     /// A declaration whose proof or body is incomplete. Lean: `sorry`.
     Unproven,
+    /// A name a declaration mentions (`detail`), recorded once per distinct name. Lean theorems
+    /// and definitions only: it lets the reconciler follow what a proof rests on.
+    Mention,
 }
 
 impl FactKind {
@@ -180,6 +187,7 @@ impl FactKind {
             FactKind::ErrorReturn => "error_return",
             FactKind::MacroInvocation => "macro_invocation",
             FactKind::Unproven => "unproven",
+            FactKind::Mention => "mention",
         }
     }
 }

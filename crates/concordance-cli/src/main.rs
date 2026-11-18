@@ -43,6 +43,9 @@ enum Cmd {
     Report(ReportArgs),
     /// Check the specification against the requirement format (see docs/spec-lint.md).
     Lint(LintArgs),
+    /// Bind each test-results file to the sources and requirement text it was run on. Run it
+    /// right after the tests, with no edit in between.
+    Record(RecordArgs),
 }
 
 #[derive(Args, Clone)]
@@ -138,6 +141,12 @@ struct LintArgs {
     /// Print the findings as JSON.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Args)]
+struct RecordArgs {
+    #[command(flatten)]
+    common: Common,
 }
 
 #[derive(Args)]
@@ -248,6 +257,7 @@ fn main() -> ExitCode {
             Cmd::Watch(a) => watch(a).await,
             Cmd::Report(a) => report_cmd(a),
             Cmd::Lint(a) => lint(a).await,
+            Cmd::Record(a) => record(a).await,
         }
     })
 }
@@ -499,6 +509,57 @@ async fn lint(mut a: LintArgs) -> ExitCode {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// Write a manifest beside every configured results file: a hash of every indexed source file and
+/// of every requirement statement as they are now. `scan` then accepts the results only while
+/// that content is unchanged. Exit 2 when no results file is configured or one cannot be read.
+async fn record(mut a: RecordArgs) -> ExitCode {
+    a.common.semantic = false;
+    a.common.no_semantic = true;
+    let config = match config_or_exit(&a.common, None, None) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    if config.test_results.is_empty() {
+        eprintln!(
+            "error: no test results configured: name them with `test_results` in the configuration or `--test-results`"
+        );
+        return ExitCode::from(2);
+    }
+    let (engine, task, bus) = match start_engine(config.clone(), false).await {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    engine.wait_idle().await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let (recorded, _) = engine
+        .shared
+        .read(|m| concordance_engine::runs::record(m, &config, now));
+    engine.shutdown();
+    bus.close();
+    let _ = task.await;
+    match recorded {
+        Ok(list) => {
+            for r in list {
+                println!(
+                    "recorded {}: {} source files, {} requirement statements -> {}",
+                    r.results.display(),
+                    r.sources,
+                    r.statements,
+                    r.manifest.display()
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
     }
 }
 

@@ -74,7 +74,11 @@ pub enum Method {
         verdict: String,
     },
     /// A recorded test outcome for a test that declares `Verifies: <requirement>`.
-    /// `outcome`: `passed` | `failed` | `ignored` | `not_run` | `outdated`.
+    /// `outcome`: `passed` | `failed` | `ignored` | `not_run` | `outdated` (a source or the
+    /// requirement text changed since the run was recorded) | `unrecorded` (no manifest binds
+    /// the results file to the content it ran on) | `not_compiled` (the test is in a file no
+    /// crate target reaches) | `disqualified` (it passed, but its proof is reported by a proof
+    /// rule).
     Test {
         test: String,
         outcome: String,

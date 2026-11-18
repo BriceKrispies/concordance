@@ -1,7 +1,7 @@
 //! Call resolution and proof reach over indexed Rust source (WG-4819).
 
 use crate::link::symbol_edges;
-use crate::verification::proof_reach;
+use crate::verification::{lean_statement, proof_flaws, proof_reach};
 use concordance_core::code::{CrateInfo, Symbol, SymbolKind, WorkspaceInfo};
 use concordance_core::graph::{NodeRef, Resolution};
 use concordance_core::{RepoPath, SymbolId};
@@ -167,4 +167,123 @@ fn explicit_path_to_private_function_still_bypasses_the_boundary() {
     let reach = proof_reach(&model, proof);
     assert!(!reach.reaches_public);
     assert_eq!(reach.internals, vec![hidden.clone()]);
+}
+
+const SUBSTRATE_PRIVATE: &str = r#"
+fn lint() {}
+
+fn only_here() {}
+"#;
+
+/// A proof file with a helper of its own named like a private function of another crate.
+const SHADOWING_TEST: &str = r#"
+fn lint() -> bool {
+    true
+}
+
+/// Verifies: SIM-003
+#[test]
+fn local_helper_shadows() {
+    assert!(lint());
+}
+
+/// Verifies: SIM-004
+#[test]
+fn private_item_of_another_crate() {
+    assert!(only_here());
+}
+"#;
+
+const BINARY_TEST: &str = r#"
+use std::process::Command;
+
+fn run() -> bool {
+    Command::new(env!("CARGO_BIN_EXE_strata")).status().is_ok()
+}
+
+/// Verifies: SIM-005
+#[test]
+fn runs_the_binary() {
+    assert!(run());
+}
+"#;
+
+fn shadowing_model() -> Model {
+    model_of(&[
+        ("crates/strata-substrate/src/lint.rs", SUBSTRATE_PRIVATE),
+        ("crates/strata-simulation/tests/shadow.rs", SHADOWING_TEST),
+        ("crates/strata-simulation/tests/binary.rs", BINARY_TEST),
+    ])
+}
+
+#[test]
+fn a_local_helper_shadows_a_same_named_private_function_elsewhere() {
+    let model = shadowing_model();
+    let proof = named(&model, "local_helper_shadows", SymbolKind::Function);
+    let local = model
+        .symbols
+        .values()
+        .find(|s| s.name == "lint" && s.file == proof.file)
+        .expect("the helper is indexed");
+    let edge = model
+        .edges_from(&NodeRef::Symbol(proof.id.clone()))
+        .find(|e| e.target_text == "lint")
+        .expect("the call has an edge");
+    assert_eq!(edge.to, Some(NodeRef::Symbol(local.id.clone())));
+    assert_eq!(edge.resolution, Resolution::Exact);
+}
+
+#[test]
+fn a_private_function_of_another_crate_is_not_reachable() {
+    let model = shadowing_model();
+    let proof = named(
+        &model,
+        "private_item_of_another_crate",
+        SymbolKind::Function,
+    );
+    assert!(model
+        .edges_from(&NodeRef::Symbol(proof.id.clone()))
+        .all(|e| e.target_text != "only_here"));
+    // With nothing it calls resolving to indexed code, the proof is reported.
+    let flaws = proof_flaws(&model, proof);
+    assert_eq!(
+        flaws.iter().map(|f| f.rule).collect::<Vec<_>>(),
+        vec!["calls_nothing"]
+    );
+}
+
+#[test]
+fn a_proof_that_runs_the_packages_binary_is_not_reported() {
+    let model = shadowing_model();
+    let proof = named(&model, "runs_the_binary", SymbolKind::Function);
+    assert!(proof_flaws(&model, proof).is_empty());
+}
+
+#[test]
+fn a_proof_that_calls_only_private_code_bypasses_the_boundary() {
+    let model = standard_model();
+    let proof = named(&model, "bypasses_boundary", SymbolKind::Function);
+    assert_eq!(
+        proof_flaws(&model, proof)
+            .iter()
+            .map(|f| f.rule)
+            .collect::<Vec<_>>(),
+        vec!["bypasses_boundary"]
+    );
+    let boundary = named(&model, "projection_boundary", SymbolKind::Function);
+    assert!(proof_flaws(&model, boundary).is_empty());
+}
+
+#[test]
+fn the_statement_of_a_lean_header_follows_its_binders() {
+    assert_eq!(
+        lean_statement("theorem t (n : Nat) : n = n").as_deref(),
+        Some("n = n")
+    );
+    assert_eq!(lean_statement("theorem c : True").as_deref(), Some("True"));
+    assert_eq!(
+        lean_statement("theorem f {a : Nat} : ∀ x : Nat, x = x").as_deref(),
+        Some("∀ x : Nat, x = x")
+    );
+    assert_eq!(lean_statement("theorem none"), None);
 }

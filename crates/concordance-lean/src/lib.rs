@@ -27,7 +27,7 @@ use concordance_core::RepoPath;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub const EXTRACTOR_VERSION: &str = "lean-1";
+pub const EXTRACTOR_VERSION: &str = "lean-2";
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LeanPlugin;

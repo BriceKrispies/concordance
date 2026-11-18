@@ -677,11 +677,25 @@ impl<'t> Cx<'t> {
                 detail: "unsafe".into(),
             });
         }
+        let mut mentioned: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        // Mentions go after the other facts, so a bounded list of facts keeps `sorry` first.
+        let mut mentions: Vec<Fact> = Vec::new();
         for j in cmd.first..end_tok {
             if self.src.lx.toks[j].kind != TokKind::Ident {
                 continue;
             }
             let w = self.src.t(j);
+            if matches!(kw, "theorem" | "lemma" | "def" | "abbrev" | "instance")
+                && mentioned.len() < 200
+                && w.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                && mentioned.insert(w.to_string())
+            {
+                mentions.push(Fact {
+                    kind: FactKind::Mention,
+                    range: self.tok_range(j, j),
+                    detail: bounded(w),
+                });
+            }
             let (k, d) = match w {
                 "sorry" => (FactKind::Unproven, "sorry"),
                 "panic!" => (FactKind::PanicSite, "panic!"),
@@ -695,6 +709,7 @@ impl<'t> Cx<'t> {
                 detail: bounded(d),
             });
         }
+        facts.extend(mentions);
         self.symbols[pidx].facts = facts;
 
         match kind {

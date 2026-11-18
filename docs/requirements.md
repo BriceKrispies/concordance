@@ -182,9 +182,11 @@ A `Verifies:` line in a test function's doc comment links it to one or more requ
 reported as a violated finding on the test. A `#[test]` declared inside a `proptest!` block is indexed
 as a test like any other, with its own name and `Verifies:` line.
 
-Beyond the unknown ID, `scan` reports two more breaches of the proof rules as findings
+Beyond the unknown ID, `scan` reports more breaches of the proof rules as findings
 (see [spec-lint.md](spec-lint.md#proof-checks-in-scan)): a requirement declared by more than one
-proof, and a proof whose resolved calls all go to non-public symbols.
+proof, a proof that bypasses the boundary or calls no indexed code, and Lean proofs that state `True` or rest on
+an axiom. A passing result of a reported proof does not verify its requirement (see
+[Test results](#test-results)).
 
 TypeScript/JavaScript tests (`it(...)` / `test(...)`, at any depth, with or without an enclosing
 `describe(...)`) take the `Verifies:` line from the comment directly above the call:
@@ -215,70 +217,126 @@ theorem clamp_le_max (n : Nat) : clampLevel n ≤ maxLevel := by ...
 
 ## Test results
 
-Concordance does not run the analysed repository's tests. Point it at their output:
+Concordance does not run the analysed repository's tests. Point it at their output, then record it:
 
 ```
-cargo test 2>&1 | tee C:/ci/tests.txt
-concordance serve --config concordance.toml --test-results C:/ci/tests.txt
+cargo test 2>&1 | tee target/test-results/cargo-test.txt
+concordance record --config concordance.toml     # right after the tests, before any edit
+concordance scan --config concordance.toml --fail-on unverified
 ```
 
-or `test_results = ["C:/ci/tests.txt"]` in the config file. Accepted, mixed freely: libtest text,
-libtest JSON lines (`-Z unstable-options --format json`), cargo-nextest output, JUnit XML
+or `test_results = ["target/test-results/cargo-test.txt"]` in the config file. Accepted, mixed freely:
+libtest text, libtest JSON lines (`-Z unstable-options --format json`), cargo-nextest output, JUnit XML
 (`vitest run --reporter=junit --outputFile=...`, most CI reporters) and vitest/jest text output
 (`✓ file > describe > case`). For .NET, `dotnet test --logger trx` (Visual Studio TRX) and
 `--logger junit` output are read; results are named `Namespace::Class::Method`, and the rows of a
 `[Theory]` count as one test whose worst outcome wins.
 For Lean, a `lake build` log (`lake build 2>&1 | tee build.log`): a tagged
-theorem passes when its module built and no error or `declaration uses 'sorry'` warning lies inside
-the theorem's lines; it fails when one does, or when its module failed to build; a module the log
-does not mention gives no result.
+theorem passes when the log shows its own module built (`Built Volume.Mixer`, the module named in full) and no
+error or `declaration uses 'sorry'` warning lies inside the theorem's lines; it fails when one does, or when
+its module failed to build; a module the log does not show built gives no result, however the build
+ended. Lake prints only the modules it built, so build from clean (or with `-R`) when the log must cover
+every module.
 Result names are matched to test functions by their module path. The file is watched, so writing
 a new run re-derives every requirement finding.
 
+### Recording a run
+
+A results file says what happened, not what code it happened to. `concordance record` is the user saying
+"these results describe the sources and the specification as they are now": it writes
+`<results file>.manifest.json` beside each configured results file, holding the hash of every indexed
+source file and of every requirement's statement text, and the hash of the results file itself. `scan`
+reads the manifest and treats the results as current only while all of the following hold:
+
+- the manifest exists, is readable and describes this results file (its hash matches);
+- no indexed source file differs from the manifest: changed, added or removed (a file whose
+  modification time moved but whose bytes did not is unchanged);
+- the statement text of the requirement has not changed since.
+
+Modification times are not used anywhere. Freshness is per run for sources (any change to any indexed
+source file makes every result of that run stale, since Concordance cannot know which code a test
+exercised) and per requirement for statements (editing one requirement's text makes only its results
+stale). Files outside the source roots (manifests such as `Cargo.toml`, build scripts, data files, the
+toolchain) are not covered.
+
+What is still trusted: that `record` ran immediately after the tests with no edit between them, and
+that the results file is real output of those tests. Concordance cannot see either.
+
 | Recorded outcome | Status of a one-statement requirement |
 |---|---|
-| passed, run recorded after the last change to any indexed source file | `verified` |
-| failed | `violated` (`test_failure`; counts for `--fail-on proven`) |
-| recorded before a source change | `unverified`: the result is outdated, re-run the tests |
-| ignored, or no run reports the test | `unverified` |
+| passed, in a run recorded against the current sources and requirement text, and its proof is not reported (below) | `verified` |
+| failed, in such a run | `violated` (`test_failure`; counts for `--fail-on proven`) |
+| a results file with no manifest, a manifest that does not match the file, a source file changed since `record`, or the requirement's text changed since `record` | `stale`: the result is not current, run the tests and `concordance record` again; never a gate failure |
+| passed, but its proof is reported by a proof rule (bypasses the boundary, calls no indexed code, states `True`, rests on a declared axiom) | `unverified`: the pass is not accepted |
+| the test is in a Rust file no `mod` declaration reaches from a crate target | `unverified`: it is never compiled, so no run executed it |
+| ignored, or no run reports the test (in its crate) | `unverified` |
 | no test declares `Verifies:` for it | `unverified`: "has no test" |
 
-The freshness rule is conservative: any change to an indexed source file after the run makes all
-results outdated, since Concordance cannot know which code a test exercised. It compares file
-modification times, not contents, and only source files are compared: an edit to the specification
-after the run does not make a result outdated.
+A results file with no manifest is `stale`. There is no weaker "verified" status for it and no setting that
+accepts unrecorded results: the default is strict.
+
+### Matching a result with its test
+
+A result line is matched with a test by name, and by crate where the format says which crate printed it:
+libtest text (the `Running unittests src/lib.rs (target/debug/deps/x-hash)` and `Doc-tests x` lines above
+the results) and nextest (the first segment of the binary id, the package). A line printed by the test
+binary of another crate does not apply to a test of this one, and a scope that names no crate of the
+repository applies to no test. JUnit, TRX, vitest/jest text and JSON-lines results carry no crate and
+match by name only. A test in a Rust file that no `mod` declaration reaches from a crate target (a library,
+binary, test, example or bench root) is not compiled, so it has no result whatever a same-named line says.
+`cfg` predicates are not evaluated and `#[path]` is followed only for a plain string literal.
+
+### Proof checks
+
+A passing result does not verify a requirement when its proof is reported by one of these rules (the
+findings are listed in [spec-lint.md](spec-lint.md#proof-checks-in-scan)):
+
+- `bypasses_boundary`: every call the proof makes that resolves to indexed code goes to a non-public symbol.
+- `calls_nothing` (Rust proofs only): no call of the proof, or of the test helpers it calls, resolves to indexed
+  code. Calls are read in function bodies and in the arguments of `assert!`, `assert_eq!`, `assert_ne!` and their
+  `debug_` forms. A proof that runs the package's own binary (it reads `env!("CARGO_BIN_EXE_<name>")`) reaches the
+  command-line boundary and is not reported. TypeScript and C# calls (constructors, method calls) are not resolved
+  reliably enough to judge a proof by them.
+- `trivial_statement` (Lean): the theorem states `True`.
+- `uses_axiom` (Lean): the theorem mentions, directly or through the definitions and theorems it names, an
+  `axiom` declared in the repository.
 
 ## What "verified" establishes
 
-`verified` means one thing: a test whose `///` doc comment (Rust) or the comment the language section
-above names declares `Verifies: ID` passed in a recorded run, and that run was recorded after the last
-modification of an indexed source file. It does not establish any of the following, and nothing else in Concordance checks them:
+`verified` means: a test whose `///` doc comment (Rust) or the comment the language section above names declares
+`Verifies: ID` passed in a recorded run; that run is bound by `concordance record` to the current sources and the
+current text of the requirement; the result line is matched with the test's crate where the format says it; the
+test's file is compiled; and the proof is not reported by a proof rule. It does not establish any of the
+following, and nothing else in Concordance checks them:
 
-- **The test's body is not inspected.** An empty test, one that asserts `true`, or one that calls only
-  an unrelated public function, verifies its requirement if the run reports it passed. The only
-  body check is that a declaring proof which calls nothing but non-public code is reported
-  (`bypasses_boundary`); a proof with no resolved call at all is not reported.
+- **The test's body is not judged.** A test that calls a public function and asserts nothing about it, one
+  that asserts `true` after calling an unrelated public function, or one whose assertion cannot fail, verifies its
+  requirement if the run reports it passed. Only the calls are checked: a Rust proof that calls no indexed code, or
+  only non-public code, is reported and not accepted; a proof in TypeScript or C# is not judged by its calls.
 - **The declaration is taken as written.** `Verifies:` is the author's claim. A test may declare
   several requirements, and a declaration of an ID that the specification gives twice is not reported.
-- **Results are matched by name, not by crate or by file.** A result line names a test by its module
-  path (libtest, nextest) or title (JUnit, vitest). A line for a test of another crate with the same
-  path, or a line printed inside another test's captured output (`test x ... ok`), can supply the
-  result for a test that did not run. A test in a source file that no module declares is still
-  indexed as a test.
-- **Results are trusted.** The results file is read as given: nothing binds it to the code it
-  tested, and a file written after an edit counts as current whatever code it describes. A JUnit
-  test cut off before its end is recorded as no result (not as passed); other truncated outputs
+- **Name matching below the crate is by name.** Within a crate, libtest and nextest results are matched by module path
+  or title, and JUnit, TRX, vitest/jest and JSON-lines results by name alone. A line printed inside another
+  test's captured output (`test x ... ok`) is ignored for libtest text.
+- **Recording is trusted.** The manifest proves that the user recorded content; it cannot show that the results
+  were produced from it. If the sources were edited between the tests and `record`, or a results file was
+  copied from another checkout, the run is accepted as describing the content that was recorded.
+  A JUnit test cut off before its end is recorded as no result (not as passed); other truncated outputs
   are read only for the lines they contain.
 - **Attributes are not evaluated.** `#[ignore]` is respected through its result line. `cfg`
   predicates are not evaluated, so a test disabled by `cfg` is still a declaring test.
-- **The specification text is not compared.** Editing a requirement's statement after a run does not
-  make its result outdated, so a passing run of the old wording stays `verified` for the new one.
-- **Lean theorems are compile checks.** A tagged theorem is `verified` when its module built and no
-  `sorry` or error lies in its lines. The statement is not compared with the requirement, `True` and
-  axioms are not detected, and a log that says `Build completed successfully` verifies every tagged
-  theorem, including those of modules that build did not include.
+- **A statement is compared as text.** A reworded requirement is stale, but a requirement that is edited and
+  re-recorded is accepted for its new wording without anyone checking that the test still covers it.
+- **Lean theorems are compile checks.** A tagged theorem is `verified` when the log shows its module built and no
+  `sorry` or error lies in its lines, it does not state `True`, and it names no axiom declared in the repository.
+  Axioms of Lean itself or of a dependency are not seen, the statement is not compared with the requirement, and a
+  theorem about the wrong thing verifies.
 
-A `verified` status therefore says that a declared test passed on the code as it was when the run
-was recorded. Whether the test checks the requirement is a judgement the status does not make.
-`--fail-on proven` gives no assurance about `verified` requirements either: it fails only on open
-structural contradictions and failing recorded tests of started milestones.
+A `verified` status therefore says that a declared test passed on the code and requirement text recorded with it.
+Whether the test checks the requirement is a judgement the status does not make.
+
+What the gate modes guarantee (`scan --fail-on`, see [cli.md](cli.md#exit-codes)): `proven` guarantees only that
+no structural contradiction and no failing recorded test of a started milestone is open, and nothing about
+requirements that have no proof; `violated` adds the semantic contradictions that survived a challenge; and
+`unverified` additionally guarantees that every requirement of a started milestone has the status `verified`,
+with the limits listed above.

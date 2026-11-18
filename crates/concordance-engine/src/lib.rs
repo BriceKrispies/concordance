@@ -16,6 +16,7 @@
 mod apply;
 mod discover;
 pub mod git;
+pub mod runs;
 mod scan;
 mod semantic;
 pub mod source;

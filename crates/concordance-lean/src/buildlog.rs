@@ -6,9 +6,11 @@
 //!
 //! * fails when an error diagnostic or a `sorry` warning lies inside its line range,
 //! * fails when its module failed to build (a `✖` line, or any error in the file),
-//! * passes when its module was reported built, or the log says the whole build
-//!   completed successfully,
-//! * has no outcome otherwise (the module is not mentioned: no evidence).
+//! * passes only when the log shows its own module built (`Built Volume.Mixer`, the module
+//!   named in full, so a module of the same leaf name in another package does not match),
+//! * has no outcome otherwise: a log that merely says the build completed, or never mentions
+//!   the module, is no evidence about it (Lake prints only the modules it built, so build from
+//!   clean or with `-R` when the log must cover every module).
 
 use concordance_core::testrun::{TestOutcome, TestSite};
 use std::collections::{BTreeMap, BTreeSet};
@@ -136,10 +138,16 @@ fn same_file(repo: &str, file: &str) -> bool {
     repo == file || repo.ends_with(&format!("/{file}")) || file.ends_with(&format!("/{repo}"))
 }
 
-/// Whether the log's dotted `module` names the module of `repo`.
-fn same_module(repo: &str, module: &str) -> bool {
-    let m = module_of(repo);
-    m == module || m.ends_with(&format!(".{module}"))
+/// Whether the log's dotted `module` is the module of the test's file. The module is the
+/// file's path inside its package (`Volume.Mixer`); with no package root known, the repository
+/// path stands in for it.
+fn same_module(site: &TestSite, module: &str) -> bool {
+    let named = site.module.join(".");
+    if named.is_empty() {
+        module_of(site.file.as_str()) == module
+    } else {
+        named == module
+    }
 }
 
 pub fn outcomes(log: &str, tests: &[TestSite]) -> BTreeMap<String, TestOutcome> {
@@ -160,11 +168,11 @@ pub fn outcomes(log: &str, tests: &[TestSite]) -> BTreeMap<String, TestOutcome> 
             v.iter()
                 .any(|(f, l)| same_file(repo, f) && (lo..=hi).contains(l))
         };
-        let module_failed = b.failed.iter().any(|m| same_module(repo, m))
+        let module_failed = b.failed.iter().any(|m| same_module(t, m))
             || b.errors.iter().any(|(f, _)| same_file(repo, f));
         let o = if inside(&b.sorries) || inside(&b.errors) || module_failed {
             TestOutcome::Failed
-        } else if b.completed || b.built.iter().any(|m| same_module(repo, m)) {
+        } else if b.built.iter().any(|m| same_module(t, m)) {
             TestOutcome::Passed
         } else {
             continue;
@@ -173,4 +181,46 @@ pub fn outcomes(log: &str, tests: &[TestSite]) -> BTreeMap<String, TestOutcome> 
         *e = (*e).max(o);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use concordance_core::{RepoPath, SourceRange};
+
+    fn site(module: &[&str]) -> TestSite {
+        let file = format!("{}.lean", module.join("/"));
+        let path = RepoPath::from_relative_str(&file).unwrap();
+        TestSite {
+            name: "pkg::Volume::clamp_le_max".into(),
+            range: SourceRange::lines(path.clone(), 10, 14),
+            file: path,
+            module: module.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_completed_build_says_nothing_about_a_module_it_did_not_report() {
+        let log = "✔ [1/2] Built Volume\nBuild completed successfully.\n";
+        let got = outcomes(log, &[site(&["Volume", "Mixer"])]);
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn the_module_must_be_named_in_full() {
+        // `Mixer` of another package is not `Volume.Mixer`.
+        let log = "✔ [1/1] Built Mixer\nBuild completed successfully.\n";
+        let got = outcomes(log, &[site(&["Volume", "Mixer"])]);
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn a_reported_build_of_its_own_module_passes() {
+        let log = "✔ [1/1] Built Volume.Mixer\nBuild completed successfully.\n";
+        let got = outcomes(log, &[site(&["Volume", "Mixer"])]);
+        assert_eq!(
+            got.get("pkg::Volume::clamp_le_max"),
+            Some(&TestOutcome::Passed)
+        );
+    }
 }

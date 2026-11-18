@@ -57,11 +57,19 @@ fn repo(tag: &str, spec: &str, gate: &str) -> PathBuf {
         ),
     )
     .unwrap();
-    // The recorded run must be newer than every source file, or scan reports it stale.
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    let results = dir.join("results/failed.txt");
-    let text = std::fs::read_to_string(&results).unwrap();
-    std::fs::write(&results, text).unwrap();
+    // Bind the recorded run to the content it was run on, or scan reports it unrecorded.
+    let out = Command::new(env!("CARGO_BIN_EXE_concordance"))
+        .args(["record", "--repo"])
+        .arg(&dir)
+        .arg("--state-dir")
+        .arg(dir.parent().unwrap().join("state"))
+        .output()
+        .expect("run concordance record");
+    assert!(
+        out.status.success(),
+        "record failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -131,6 +139,53 @@ This specification is normative.
 - Milestone: 2
 - Seam: 1
 ";
+
+/// LEX-001 (unstarted) has a failing test; LEX-002 (started) has none.
+const SPEC_UNTESTED: &str = "# Comment lexer
+
+This specification is normative.
+
+**LEX-001** A block comment SHALL end at the `*/` that balances its opening `/*`.
+- Milestone: 2
+
+**LEX-002** The lexer MUST reject a block comment that is never closed.
+- Milestone: 1
+";
+
+#[test]
+fn fail_on_unverified_fails_on_a_started_requirement_nobody_proves() {
+    let r = repo(
+        "unverified",
+        SPEC_UNTESTED,
+        "[gate]
+started_milestones = [1]
+",
+    );
+    // `proven` ignores a requirement that has no test.
+    let proven = scan(&r, "proven");
+    assert_eq!(proven.code, 0, "{}", proven.json["gate"]);
+    assert_eq!(proven.json["gate"]["unverified_requirements"], 1);
+    // `unverified` does not.
+    let strict = scan(&r, "unverified");
+    assert_eq!(strict.code, 1, "{}", strict.json["gate"]);
+    assert_eq!(strict.json["gate"]["fail_on"], "unverified");
+    assert_eq!(strict.json["gate"]["failed"], true);
+}
+
+#[test]
+fn fail_on_unverified_leaves_an_unstarted_milestone_alone() {
+    let spec = SPEC_UNTESTED.replace("- Milestone: 1", "- Milestone: 2");
+    let r = repo(
+        "unverified-unstarted",
+        &spec,
+        "[gate]
+started_milestones = [1]
+",
+    );
+    let strict = scan(&r, "unverified");
+    assert_eq!(strict.json["gate"]["unverified_requirements"], 0);
+    assert_eq!(strict.code, 0, "{}", strict.json["gate"]);
+}
 
 #[test]
 fn an_unstarted_milestone_is_planned_and_does_not_fail_the_gate() {

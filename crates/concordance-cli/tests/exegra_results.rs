@@ -41,12 +41,23 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// A copy of the fixture whose recorded test run is `run` and is newer than every source file.
+/// A copy of the fixture whose recorded test run is `run`, bound to the content by `concordance record`.
 fn repo(tag: &str, run: &str) -> PathBuf {
     let dir = temp_dir(tag).join("repo");
     copy_dir(&repo_root().join("fixtures/exegra/jsonc"), &dir);
-    std::thread::sleep(std::time::Duration::from_millis(50));
     std::fs::write(dir.join("results/passed.txt"), run).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_concordance"))
+        .args(["record", "--repo"])
+        .arg(&dir)
+        .arg("--state-dir")
+        .arg(temp_dir(&format!("{tag}-record-state")))
+        .output()
+        .expect("run concordance record");
+    assert!(
+        out.status.success(),
+        "record failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 

@@ -6,16 +6,19 @@
 //! 3. semantic `disagrees` upheld by an adversarial challenge -> `violated` (suspected semantic)
 //! 4. semantic evidence invalidated by a change and not re-established -> `stale`
 //! 5. semantic `ambiguous` verdict -> `ambiguous`
-//! 6. a test declaring `Verifies: <requirement>` passed in a run recorded after the last
-//!    source change (one-statement requirement) -> `verified`
+//! 6. a test declaring `Verifies: <requirement>` passed in a run recorded against the current
+//!    sources and requirement text, and its proof is not reported (one-statement requirement)
+//!    -> `verified`
 //! 7. heuristic vague wording -> `ambiguous`
 //! 8. semantic `agrees`, challenged and upheld (or unchallenged for low-impact claims) -> `verified`
 //! 9. valid structural support of strength >= Strong covering the claim -> `verified`
 //! 10. a cited path that matches several files -> `ambiguous`
 //! 11. cited code changed at the configured `compare` revision -> `stale` (citation drift)
-//! 12. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected;
+//! 12. a test result whose run is unrecorded, or was recorded against other sources or other
+//!     requirement text -> `stale` (invalidated evidence)
+//! 13. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected;
 //!     labelled structural when only structural evidence suggests it)
-//! 13. otherwise -> `unverified` (missing evidence)
+//! 14. otherwise -> `unverified` (missing evidence)
 
 use crate::citation::is_citation_check;
 use crate::text::spec_citation;
@@ -297,6 +300,16 @@ pub fn claim_finding(
             confidence: 0.8,
             quality: EvidenceQuality::Strong,
             headline: format!("Cited code changed since the cited revision: {}", e.summary),
+        }
+    } else if let Some(e) = test_evidence.iter().copied().find(|e| {
+        matches!(&e.method, Method::Test { outcome, .. } if outcome == "outdated" || outcome == "unrecorded")
+    }) {
+        Decision {
+            status: FindingStatus::Stale,
+            category: FindingCategory::InvalidatedEvidence,
+            confidence: 0.7,
+            quality: EvidenceQuality::Weak,
+            headline: format!("A recorded test result no longer describes this requirement: {}", e.summary),
         }
     } else if !moderate_contra.is_empty()
         || sem_verdict == Some("disagrees")
@@ -878,13 +891,34 @@ pub fn conflict_findings(model: &Model, ctx: &BatchContext) -> Vec<(Finding, Evi
     use concordance_core::doc::BoundOp::*;
     let stop = [
         "the", "must", "shall", "should", "not", "never", "hold", "holds", "have", "has", "be",
-        "is", "are", "a", "an", "of", "at", "most", "least",
+        "is", "are", "a", "an", "of", "at", "most", "least", "for", "over", "after", "before",
+        "per", "each", "with", "from", "into", "its", "their", "than", "only", "within", "without",
+        "when", "while", "every", "any", "all", "also", "and", "that", "which",
     ];
     let words = |s: &str| -> BTreeSet<String> {
         s.split(|c: char| !c.is_alphanumeric())
             .map(str::to_lowercase)
             .filter(|w| w.len() >= 3 && !stop.contains(&w.as_str()))
+            .map(|w| match w.strip_suffix('s') {
+                Some(stem) if stem.len() >= 3 && !stem.ends_with('s') => stem.to_string(),
+                _ => w,
+            })
             .collect()
+    };
+    // What a claim is about: the words before its modal verb ("The access token SHALL ...").
+    // Two bounds are only in conflict when their claims are about the same thing; sharing a
+    // unit ("at most 5 minutes", "at least 7 days") or a preposition says nothing about that.
+    let modals = ["must", "shall", "should", "will", "may", "can", "cannot"];
+    let about = |c: &Claim| -> Option<BTreeSet<String>> {
+        let toks: Vec<&str> = c.text.split_whitespace().collect();
+        let at = toks.iter().position(|t| {
+            let t = t
+                .trim_matches(|ch: char| !ch.is_alphanumeric())
+                .to_lowercase();
+            modals.contains(&t.as_str())
+        })?;
+        let w = words(&toks[..at].join(" "));
+        (!w.is_empty()).then_some(w)
     };
     let bounded: Vec<&Claim> = model
         .claims
@@ -912,7 +946,12 @@ pub fn conflict_findings(model: &Model, ctx: &BatchContext) -> Vec<(Finding, Evi
                                 )
                         })
                     });
-                    let shared_words = !words(&ba.subject).is_disjoint(&words(&bb.subject));
+                    let same_subject = match (about(a), about(b)) {
+                        (Some(x), Some(y)) => !x.is_disjoint(&y),
+                        _ => true,
+                    };
+                    let shared_words =
+                        same_subject && !words(&ba.subject).is_disjoint(&words(&bb.subject));
                     if !(shared_symbol || shared_words) {
                         continue;
                     }

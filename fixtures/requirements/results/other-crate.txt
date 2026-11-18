@@ -1,0 +1,6 @@
+Running unittests crates/other/src/lib.rs (target/debug/deps/other-0123456789abcdef)
+
+running 1 test
+test tests::nested_comment_ends_at_the_balancing_close ... ok
+
+test result: ok. 1 passed; 0 failed

@@ -52,7 +52,6 @@ impl Engine {
     pub(crate) fn reload_test_runs(&mut self) -> bool {
         use concordance_core::testrun::{self, TestRun};
         let paths = self.shared.config.test_results.clone();
-        let root = self.shared.config.repo_root.clone();
         let mut runs: Vec<TestRun> = Vec::new();
         // Indexed test symbols per language, for plugins that read build logs.
         let sites: Vec<(String, testrun::TestSite)> = self
@@ -69,6 +68,7 @@ impl Engine {
                                 name: s.path.join("::"),
                                 file: f.path.clone(),
                                 range: s.range.clone(),
+                                module: f.module_path.clone(),
                             },
                         ))
                     })
@@ -79,7 +79,8 @@ impl Engine {
             let (Some(modified), Ok(text)) = (mtime_ms(p), std::fs::read_to_string(p)) else {
                 continue; // not produced yet: no evidence, nothing to report
             };
-            let mut results = testrun::parse(&text);
+            let parsed = testrun::parse_scoped(&text);
+            let mut results = parsed.results;
             for plugin in crate::languages().iter() {
                 let mine: Vec<testrun::TestSite> = sites
                     .iter()
@@ -94,36 +95,28 @@ impl Engine {
                     *e = (*e).max(o);
                 }
             }
+            // Bind the run to the content it was recorded against, and its result lines to
+            // the crates that printed them.
+            let (bound, crates) = self
+                .shared
+                .read(|m| {
+                    (
+                        crate::runs::bind(m, p, &text),
+                        crate::runs::resolve_crates(m, &parsed.scopes),
+                    )
+                })
+                .0;
             runs.push(TestRun {
                 path: p.display().to_string(),
                 modified: Timestamp(modified),
                 content_hash: ContentHash::of_str(&text),
                 results,
-                newer_sources: 0,
-                newest_source: None,
+                crates,
+                binding: bound.binding,
+                changed_sources: bound.changed_sources,
+                changed_example: bound.changed_example,
+                changed_statements: bound.changed_statements,
             });
-        }
-        if !runs.is_empty() {
-            let files: Vec<RepoPath> = self
-                .shared
-                .read(|m| m.files.values().map(|f| f.path.clone()).collect::<Vec<_>>())
-                .0;
-            let stamped: Vec<(u64, RepoPath)> = files
-                .into_iter()
-                .filter_map(|f| mtime_ms(&f.to_fs(&root)).map(|t| (t, f)))
-                .collect();
-            for run in &mut runs {
-                let mut newest: Option<(u64, RepoPath)> = None;
-                for (t, f) in &stamped {
-                    if *t > run.modified.0 {
-                        run.newer_sources += 1;
-                        if newest.as_ref().is_none_or(|n| *t > n.0) {
-                            newest = Some((*t, f.clone()));
-                        }
-                    }
-                }
-                run.newest_source = newest.map(|(_, f)| f);
-            }
         }
         let mut m = self.shared.model.write().unwrap_or_else(|e| e.into_inner());
         if m.test_runs == runs {
@@ -135,10 +128,12 @@ impl Engine {
 
     /// Whether `p` is one of the configured test-run outputs.
     pub(crate) fn is_test_results(&self, p: &std::path::Path) -> bool {
-        self.shared.config.test_results.iter().any(|r| {
-            r.to_string_lossy()
-                .eq_ignore_ascii_case(&p.to_string_lossy())
-        })
+        crate::runs::watched_files(&self.shared.config.test_results)
+            .iter()
+            .any(|r| {
+                r.to_string_lossy()
+                    .eq_ignore_ascii_case(&p.to_string_lossy())
+            })
     }
     pub(crate) async fn scan(&mut self, force: bool, reason: ScanReason) {
         self.scan_counter += 1;

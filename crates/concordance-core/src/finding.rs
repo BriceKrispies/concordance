@@ -177,8 +177,10 @@ pub enum FindingSubject {
         requirement: String,
     },
     /// A proof-rule breach (see `docs/spec-lint.md`): `multiple_proofs` (a requirement with more
-    /// than one declaring proof; no `symbol`) or `bypasses_boundary` (a proof that calls only
-    /// internals; `symbol` is the proof).
+    /// than one declaring proof; no `symbol`), or a flaw of the proof `symbol`: `bypasses_boundary`
+    /// (it calls only internals), `calls_nothing` (no call resolves to indexed code),
+    /// `trivial_statement` (a Lean theorem that states `True`) or `uses_axiom` (a Lean theorem that
+    /// rests on a declared axiom).
     ProofRule {
         requirement: String,
         rule: String,

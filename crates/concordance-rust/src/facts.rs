@@ -1,8 +1,10 @@
 //! Syntactic facts and call sites found inside one body.
 //!
 //! LIMITATION: macro arguments are token streams, not expressions, so nothing inside
-//! `assert!(x > 100)`, `println!("{}", a.unwrap())` etc. is analysed; only the macro
-//! invocation itself (location and path) is recorded. Nested `fn`/`impl`/... items are not
+//! `println!("{}", a.unwrap())` etc. is analysed; only the macro invocation itself (location
+//! and path) is recorded. The one exception is the call sites inside the arguments of the
+//! assertion macros (`assert!`, `assert_eq!`, `assert_ne!` and their `debug_` forms), which
+//! are read as expressions: a test mostly calls the code it checks there. Nested `fn`/`impl`/... items are not
 //! entered; they are returned in [`Scan::nested`] and indexed as symbols of their own.
 
 use crate::signature::{normalize_tokens, tokens_string};
@@ -76,6 +78,21 @@ impl<'a, 'ast> Scanner<'a, 'ast> {
     fn call(&mut self, target: CallTarget, range: SourceRange) {
         if self.out.calls.len() < MAX_CALLS {
             self.out.calls.push(CallSite { target, range });
+        }
+    }
+
+    /// Record the calls written in the arguments of an assertion macro. Only calls are taken:
+    /// the facts of those expressions (`unwrap`, comparisons) stay unrecorded as before.
+    fn calls_in_assertion(&mut self, m: &Macro) {
+        use syn::punctuated::Punctuated;
+        let Ok(args) = m.parse_body_with(Punctuated::<Expr, syn::Token![,]>::parse_terminated)
+        else {
+            return;
+        };
+        for e in &args {
+            for c in scan_expr(self.loc, e).calls {
+                self.call(c.target, c.range);
+            }
         }
     }
 }
@@ -267,6 +284,17 @@ impl<'a, 'ast> Visit<'ast> for Scanner<'a, 'ast> {
             "println" | "print" | "eprintln" | "eprint" | "format" | "write" | "writeln"
             | "vec" | "format_args" => {}
             _ => self.fact(FactKind::MacroInvocation, range, path),
+        }
+        if matches!(
+            name.as_str(),
+            "assert"
+                | "assert_eq"
+                | "assert_ne"
+                | "debug_assert"
+                | "debug_assert_eq"
+                | "debug_assert_ne"
+        ) {
+            self.calls_in_assertion(m);
         }
         visit::visit_macro(self, m);
     }
