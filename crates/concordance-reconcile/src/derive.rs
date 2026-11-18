@@ -878,13 +878,34 @@ pub fn conflict_findings(model: &Model, ctx: &BatchContext) -> Vec<(Finding, Evi
     use concordance_core::doc::BoundOp::*;
     let stop = [
         "the", "must", "shall", "should", "not", "never", "hold", "holds", "have", "has", "be",
-        "is", "are", "a", "an", "of", "at", "most", "least",
+        "is", "are", "a", "an", "of", "at", "most", "least", "for", "over", "after", "before",
+        "per", "each", "with", "from", "into", "its", "their", "than", "only", "within", "without",
+        "when", "while", "every", "any", "all", "also", "and", "that", "which",
     ];
     let words = |s: &str| -> BTreeSet<String> {
         s.split(|c: char| !c.is_alphanumeric())
             .map(str::to_lowercase)
             .filter(|w| w.len() >= 3 && !stop.contains(&w.as_str()))
+            .map(|w| match w.strip_suffix('s') {
+                Some(stem) if stem.len() >= 3 && !stem.ends_with('s') => stem.to_string(),
+                _ => w,
+            })
             .collect()
+    };
+    // What a claim is about: the words before its modal verb ("The access token SHALL ...").
+    // Two bounds are only in conflict when their claims are about the same thing; sharing a
+    // unit ("at most 5 minutes", "at least 7 days") or a preposition says nothing about that.
+    let modals = ["must", "shall", "should", "will", "may", "can", "cannot"];
+    let about = |c: &Claim| -> Option<BTreeSet<String>> {
+        let toks: Vec<&str> = c.text.split_whitespace().collect();
+        let at = toks.iter().position(|t| {
+            let t = t
+                .trim_matches(|ch: char| !ch.is_alphanumeric())
+                .to_lowercase();
+            modals.contains(&t.as_str())
+        })?;
+        let w = words(&toks[..at].join(" "));
+        (!w.is_empty()).then_some(w)
     };
     let bounded: Vec<&Claim> = model
         .claims
@@ -912,7 +933,12 @@ pub fn conflict_findings(model: &Model, ctx: &BatchContext) -> Vec<(Finding, Evi
                                 )
                         })
                     });
-                    let shared_words = !words(&ba.subject).is_disjoint(&words(&bb.subject));
+                    let same_subject = match (about(a), about(b)) {
+                        (Some(x), Some(y)) => !x.is_disjoint(&y),
+                        _ => true,
+                    };
+                    let shared_words =
+                        same_subject && !words(&ba.subject).is_disjoint(&words(&bb.subject));
                     if !(shared_symbol || shared_words) {
                         continue;
                     }
