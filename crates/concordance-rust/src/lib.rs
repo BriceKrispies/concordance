@@ -13,6 +13,8 @@ mod index;
 mod modpath;
 mod signature;
 mod spans;
+#[cfg(test)]
+mod tests;
 mod workspace;
 
 use concordance_core::code::{SourceIndex, WorkspaceInfo};
@@ -20,7 +22,7 @@ use concordance_core::RepoPath;
 use std::path::{Path, PathBuf};
 
 /// Bump when indexing output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "rs-3";
+pub const EXTRACTOR_VERSION: &str = "rs-4";
 
 pub use signature::{normalize_signature, normalize_tokens, strip_visibility};
 

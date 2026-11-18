@@ -15,7 +15,7 @@ use crate::signature::{fn_header, ident_name, item_header, normalize_tokens, tok
 use crate::spans::Locator;
 use concordance_core::code::*;
 use concordance_core::{ContentHash, FileId, RepoPath, SymbolId};
-use proc_macro2::TokenStream;
+use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
 use syn::{Attribute, Block, Expr, ImplItem, Item, Lit, Signature, TraitItem, Type, UseTree};
@@ -292,6 +292,80 @@ fn is_literalish(e: &Expr) -> bool {
         Expr::Cast(c) => is_literalish(&c.expr),
         _ => false,
     }
+}
+
+fn is_punct(t: Option<&TokenTree>, c: char) -> bool {
+    matches!(t, Some(TokenTree::Punct(p)) if p.as_char() == c)
+}
+
+fn is_ident(t: Option<&TokenTree>, word: &str) -> bool {
+    matches!(t, Some(TokenTree::Ident(i)) if i.to_string() == word)
+}
+
+fn is_group(t: Option<&TokenTree>, delim: Delimiter) -> bool {
+    matches!(t, Some(TokenTree::Group(g)) if g.delimiter() == delim)
+}
+
+/// Test functions written inside a `proptest! { ... }` block. Its arguments (`x in strategy`)
+/// are not Rust parameters, so each function is rebuilt from its outer attributes (`///` doc
+/// comments included), `fn`, its name and its body. The body keeps its original tokens and
+/// spans. Returns `None` when the block does not have that shape; the caller then skips the
+/// whole block.
+fn proptest_fns(tokens: TokenStream) -> Option<Vec<syn::ItemFn>> {
+    let toks: Vec<TokenTree> = tokens.into_iter().collect();
+    let at = |i: usize| toks.get(i);
+    let mut i = 0;
+    // Inner attributes, such as `#![proptest_config(..)]`.
+    while is_punct(at(i), '#') && is_punct(at(i + 1), '!') {
+        if !is_group(at(i + 2), Delimiter::Bracket) {
+            return None;
+        }
+        i += 3;
+    }
+    let mut fns = Vec::new();
+    while i < toks.len() {
+        let mut item = TokenStream::new();
+        while is_punct(at(i), '#') && is_group(at(i + 1), Delimiter::Bracket) {
+            item.extend([toks[i].clone(), toks[i + 1].clone()]);
+            i += 2;
+        }
+        if is_ident(at(i), "pub") {
+            item.extend([toks[i].clone()]);
+            i += 1;
+            if is_group(at(i), Delimiter::Parenthesis) {
+                item.extend([toks[i].clone()]);
+                i += 1;
+            }
+        }
+        if !is_ident(at(i), "fn") {
+            return None;
+        }
+        let fn_kw = toks[i].clone();
+        let name = at(i + 1)?.clone();
+        if !matches!(name, TokenTree::Ident(_)) {
+            return None;
+        }
+        let params = match at(i + 2) {
+            Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => g.clone(),
+            _ => return None,
+        };
+        i += 3;
+        // Optional `-> Type`: everything up to the body brace group.
+        let mut ret: Vec<TokenTree> = Vec::new();
+        while !is_group(at(i), Delimiter::Brace) {
+            ret.push(at(i)?.clone());
+            i += 1;
+        }
+        let body = at(i)?.clone();
+        i += 1;
+        let mut empty_params = Group::new(Delimiter::Parenthesis, TokenStream::new());
+        empty_params.set_span(params.span());
+        item.extend([fn_kw, name, TokenTree::Group(empty_params)]);
+        item.extend(ret);
+        item.extend([body]);
+        fns.push(syn::parse2::<syn::ItemFn>(item).ok()?);
+    }
+    Some(fns)
 }
 
 #[allow(clippy::type_complexity)]
@@ -826,6 +900,24 @@ impl Walker {
                         m.to_token_stream(),
                         None,
                     );
+                } else if m
+                    .mac
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|s| s.ident == "proptest")
+                {
+                    for f in proptest_fns(m.mac.tokens.clone()).unwrap_or_default() {
+                        self.function(
+                            sc,
+                            SymbolKind::Function,
+                            &f.vis,
+                            &f.sig,
+                            &f.attrs,
+                            Some(&f.block),
+                            f.to_token_stream(),
+                        );
+                    }
                 }
             }
             Item::Use(u) => {
