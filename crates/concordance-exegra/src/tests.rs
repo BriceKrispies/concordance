@@ -175,6 +175,31 @@ fn unusable_files_are_errors() {
 }
 
 #[test]
+fn a_requirement_that_no_section_places_is_reported_not_dropped() {
+    let text = r#"{
+  "exegra": "0.1",
+  "documents": [{"id":"d-k","path":"spec/k.md","role":"requirements"}],
+  "sections": [{"id":"s-1","title":"K","level":1,"document":"d-k","order":1,"body":"\n{{entity:krn-001}}\n"}],
+  "claims": [
+    {"id":"krn-001","kind":"requirement","ref":"KRN-001","statement":"The kernel SHALL boot.","evaluate":{"method":"example"}},
+    {"id":"krn-002","kind":"requirement","ref":"KRN-002","statement":"The kernel SHALL halt.","evaluate":{"method":"example"}}
+  ]
+}"#;
+    let x = expand("specs/spec.jsonc", text).unwrap();
+    let unplaced: Vec<&Diagnostic> = x
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::UnplacedEntity)
+        .collect();
+    assert_eq!(unplaced.len(), 1, "diagnostics: {:?}", x.diagnostics);
+    assert_eq!(unplaced[0].entity, "krn-002");
+    assert_eq!(unplaced[0].line, 7);
+    assert_eq!(unplaced[0].kind.severity(), Severity::Error);
+    assert!(!doc(&x, "spec/k.md").text.contains("KRN-002"));
+    assert!(doc(&x, "spec/k.md").text.contains("KRN-001"));
+}
+
+#[test]
 fn a_multi_line_statement_keeps_its_lines_under_the_item() {
     let src = r#"{"exegra":"0.1",
 "documents":[{"id":"d","path":"wp.md","role":"whitepaper"}],

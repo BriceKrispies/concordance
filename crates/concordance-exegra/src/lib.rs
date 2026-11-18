@@ -24,7 +24,7 @@ mod jsonc;
 mod render;
 
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 /// Bump when the rendered text or the origin mapping changes for identical input (forces
@@ -95,6 +95,9 @@ pub enum DiagnosticKind {
     /// A requirement's `casesPath` names a path that matched no case table. It is written into
     /// `Cases:` as it is.
     UnmatchedCasesPath,
+    /// A requirement that no rendered section places with a marker. It is never rendered, so no
+    /// lint and no verification sees it, and it is left out.
+    UnplacedEntity,
 }
 
 impl DiagnosticKind {
@@ -109,6 +112,7 @@ impl DiagnosticKind {
             DiagnosticKind::MalformedMarker => "malformed-marker",
             DiagnosticKind::DanglingReference => "dangling-reference",
             DiagnosticKind::UnmatchedCasesPath => "unmatched-cases-path",
+            DiagnosticKind::UnplacedEntity => "unplaced-entity",
         }
     }
 
@@ -409,6 +413,8 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
     let ctx = render::Ctx { by_id: &by_id };
     let mut out = Expansion::default();
     let mut seen_paths: HashMap<String, String> = HashMap::new();
+    // Ids that a marker in a rendered section names.
+    let mut placed: HashSet<String> = HashSet::new();
     for d in documents {
         let Some(id) = str_of(d.value, "id") else {
             continue;
@@ -465,6 +471,9 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
                 });
             }
             for s in sections_of_doc {
+                if let Some(body) = str_of(s.value, "body") {
+                    placed.extend(body.lines().filter_map(marker_id).map(str::to_string));
+                }
                 b.section(s, &ctx, &mut diagnostics, &mut out.requirements);
             }
         }
@@ -475,6 +484,25 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
             document_id: id.to_string(),
             source_line: d.line,
         });
+    }
+    // A requirement that no rendered section places is in no document: say so.
+    for e in lists.get("claims").unwrap_or(&empty) {
+        if str_of(e.value, "kind") != Some("requirement") {
+            continue;
+        }
+        let Some(id) = str_of(e.value, "id").filter(|i| !i.is_empty()) else {
+            continue;
+        };
+        if !placed.contains(id) {
+            diagnostics.push(Diagnostic {
+                kind: DiagnosticKind::UnplacedEntity,
+                entity: id.to_string(),
+                line: e.line,
+                message: format!(
+                    "requirement `{id}` is in no section body, so it is not rendered and nothing checks it; place its marker `{{{{entity:{id}}}}}` in a section"
+                ),
+            });
+        }
     }
     out.diagnostics = diagnostics;
     Ok(out)
