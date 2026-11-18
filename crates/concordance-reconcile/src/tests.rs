@@ -257,6 +257,47 @@ fn a_proof_that_runs_the_packages_binary_is_not_reported() {
     assert!(proof_flaws(&model, proof).is_empty());
 }
 
+const INSPECTION_TEST: &str = r#"
+/// Verifies: SIM-006
+/// Inspects: crates/strata-substrate/src
+#[test]
+fn reads_the_sources() {
+    assert!(std::fs::read_to_string("x").is_ok());
+}
+
+/// Verifies: SIM-007
+/// Inspects: crates/strata-nowhere/src
+#[test]
+fn names_no_indexed_code() {
+    assert!(std::fs::read_to_string("x").is_ok());
+}
+
+/// Verifies: SIM-008
+/// Inspects: crates/strata-simulation/tests
+#[test]
+fn names_only_tests() {
+    assert!(std::fs::read_to_string("x").is_ok());
+}
+"#;
+
+#[test]
+fn a_declared_source_inspection_is_not_reported_when_it_names_indexed_code() {
+    let model = model_of(&[
+        ("crates/strata-substrate/src/lint.rs", SUBSTRATE_PRIVATE),
+        ("crates/strata-simulation/tests/inspect.rs", INSPECTION_TEST),
+    ]);
+    let rules = |name: &str| {
+        proof_flaws(&model, named(&model, name, SymbolKind::Function))
+            .iter()
+            .map(|f| f.rule)
+            .collect::<Vec<_>>()
+    };
+    assert!(rules("reads_the_sources").is_empty());
+    // A path that holds no indexed code, or only test scaffolding, declares nothing.
+    assert_eq!(rules("names_no_indexed_code"), vec!["calls_nothing"]);
+    assert_eq!(rules("names_only_tests"), vec!["calls_nothing"]);
+}
+
 #[test]
 fn a_proof_that_calls_only_private_code_bypasses_the_boundary() {
     let model = standard_model();

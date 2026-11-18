@@ -229,7 +229,7 @@ a table is a case added, with no change to the requirement.
   crates): an ambiguous, low-severity finding with `rule = calls_nothing`. Calls in the arguments of
   `assert!`, `assert_eq!`, `assert_ne!` and their `debug_` forms are read. A proof that runs the package's own
   binary (`env!("CARGO_BIN_EXE_<name>")`, in the proof or in a test helper it calls) reaches the command-line
-  boundary and is not reported. TypeScript, C# and Lean proofs are not judged by their calls.
+  boundary and is not reported. A proof whose doc comment carries `Inspects: <path>`, naming a file or directory of indexed code that is not test scaffolding, declares that it reads that source text instead of calling it, and is not reported either; nothing checks that the test really reads the path. TypeScript, C# and Lean proofs are not judged by their calls.
 - A Lean theorem that states `True`: a violated finding with `rule = trivial_statement`; one that mentions,
   directly or through the definitions and theorems it names, an `axiom` declared in the repository: an
   ambiguous, low-severity finding with `rule = uses_axiom`.

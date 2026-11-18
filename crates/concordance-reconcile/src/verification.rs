@@ -306,6 +306,37 @@ fn runs_own_binary(s: &Symbol) -> bool {
         .any(|f| f.kind == FactKind::EnvRead && f.detail.contains("CARGO_BIN_EXE_"))
 }
 
+/// Whether the doc comment of `proof` declares it an inspection of source text: a line
+/// `Inspects: <path>` naming a file or directory that holds indexed code which is not test
+/// scaffolding. Such a proof reads the code instead of calling it, so no call edge can show its
+/// reach; the declaration is explicit and names what is read.
+pub fn inspects_sources(model: &Model, proof: &Symbol) -> bool {
+    let Some(doc) = &proof.doc else {
+        return false;
+    };
+    doc.lines().any(|line| {
+        let l = line.trim().trim_start_matches(['*', '-']).trim_start();
+        let Some(rest) = l
+            .strip_prefix("Inspects:")
+            .or_else(|| l.strip_prefix("inspects:"))
+        else {
+            return false;
+        };
+        let path = rest.trim().trim_matches('`').trim_end_matches('/');
+        if path.is_empty() {
+            return false;
+        }
+        let dir = format!("{path}/");
+        model.symbols.values().any(|s| {
+            !is_test_support(model, s)
+                && model.files.get(&s.file).is_some_and(|f| {
+                    let p = f.path.as_str();
+                    p == path || p.starts_with(&dir)
+                })
+        })
+    })
+}
+
 pub fn proof_reach(model: &Model, proof: &Symbol) -> ProofReach {
     let mut reach = ProofReach {
         reaches_public: false,
@@ -500,6 +531,9 @@ pub fn proof_flaws(model: &Model, proof: &Symbol) -> Vec<ProofFlaw> {
                 return out;
             }
             if reach.internals.is_empty() {
+                if inspects_sources(model, proof) {
+                    return out;
+                }
                 out.push(ProofFlaw {
                     rule: "calls_nothing",
                     detail: "none of its calls resolves to indexed code".to_string(),

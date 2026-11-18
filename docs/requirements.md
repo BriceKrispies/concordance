@@ -297,7 +297,7 @@ findings are listed in [spec-lint.md](spec-lint.md#proof-checks-in-scan)):
 - `calls_nothing` (Rust proofs only): no call of the proof, or of the test helpers it calls, resolves to indexed
   code. Calls are read in function bodies and in the arguments of `assert!`, `assert_eq!`, `assert_ne!` and their
   `debug_` forms. A proof that runs the package's own binary (it reads `env!("CARGO_BIN_EXE_<name>")`) reaches the
-  command-line boundary and is not reported. TypeScript and C# calls (constructors, method calls) are not resolved
+  command-line boundary and is not reported. A proof whose doc comment carries `Inspects: <path>`, naming a file or directory of indexed code that is not test scaffolding, declares that it reads that source text instead of calling it, and is not reported either; nothing checks that the test really reads the path. TypeScript and C# calls (constructors, method calls) are not resolved
   reliably enough to judge a proof by them.
 - `trivial_statement` (Lean): the theorem states `True`.
 - `uses_axiom` (Lean): the theorem mentions, directly or through the definitions and theorems it names, an

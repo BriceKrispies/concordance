@@ -56,6 +56,8 @@ fn progress(line: &str) -> Option<(char, String)> {
         '\u{2714}' => ('b', chars.as_str()),
         '\u{26a0}' => ('w', chars.as_str()),
         '\u{2716}' => ('f', chars.as_str()),
+        // `ℹ [4/13] Replayed Volume.Mixer`: Lake's mark for a module taken from its cache.
+        '\u{2139}' => ('n', chars.as_str()),
         _ => ('n', line),
     };
     let rest = rest.trim_start();
@@ -212,6 +214,14 @@ mod tests {
         let log = "✔ [1/1] Built Mixer\nBuild completed successfully.\n";
         let got = outcomes(log, &[site(&["Volume", "Mixer"])]);
         assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn a_module_replayed_from_the_cache_counts_as_built() {
+        let log = "\u{2139} [4/13] Replayed Volume.Mixer\n\u{2714} [5/13] Ran Volume.Mixer:irArts\nBuild completed successfully (13 jobs).\n";
+        let b = parse(log);
+        assert!(b.built.contains("Volume.Mixer"));
+        assert_eq!(b.built.len(), 1);
     }
 
     #[test]
