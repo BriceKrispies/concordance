@@ -287,3 +287,67 @@ fn the_statement_of_a_lean_header_follows_its_binders() {
     );
     assert_eq!(lean_statement("theorem none"), None);
 }
+
+/// Model of Markdown specification files (each `(path, text)`), indexed as the engine does.
+fn model_of_specs(files: &[(&str, &str)]) -> (Model, concordance_core::lang::Languages) {
+    let langs = concordance_core::lang::Languages::new(vec![]);
+    let mut model = Model::default();
+    for (path, text) in files {
+        let rel = RepoPath::from_relative_str(path).unwrap();
+        let idx = concordance_markdown::index_document(&rel, text, None, &langs);
+        let doc = idx.document.id.clone();
+        model.upsert_document(idx.document);
+        model.replace_sections(&doc, idx.sections);
+        for c in idx.claims {
+            model.upsert_claim(c);
+        }
+    }
+    (model, langs)
+}
+
+fn duplicate_id_findings(
+    model: &Model,
+    langs: concordance_core::lang::Languages,
+) -> Vec<concordance_core::finding::Finding> {
+    let ctx = crate::BatchContext {
+        revision: concordance_core::Revision(1),
+        now: concordance_core::Timestamp(0),
+        changed_files: Vec::new(),
+        semantic_enabled: false,
+        languages: langs,
+        gate: Default::default(),
+    };
+    crate::verification::proof_rule_findings(model, &ctx)
+        .into_iter()
+        .filter(|f| {
+            matches!(&f.subject, concordance_core::finding::FindingSubject::ProofRule { rule, .. } if rule == "duplicate_id")
+        })
+        .collect()
+}
+
+#[test]
+fn a_requirement_id_opened_in_two_documents_is_a_finding() {
+    let (model, langs) = model_of_specs(&[
+        (
+            "docs/spec/a.md",
+            "**KRN-007** The kernel SHALL boot.\n- Verify: example\n",
+        ),
+        (
+            "docs/spec/b.md",
+            "**KRN-007** The kernel SHALL halt.\n- Verify: example\n",
+        ),
+    ]);
+    let found = duplicate_id_findings(&model, langs);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].title.contains("KRN-007"), "{}", found[0].title);
+    assert!(found[0].title.contains("2 documents"), "{}", found[0].title);
+}
+
+#[test]
+fn one_requirement_id_in_one_document_is_not_a_duplicate() {
+    let (model, langs) = model_of_specs(&[(
+        "docs/spec/a.md",
+        "**KRN-007** The kernel SHALL boot.\n- Verify: example\n\n**KRN-008** The kernel SHALL halt.\n- Verify: example\n",
+    )]);
+    assert!(duplicate_id_findings(&model, langs).is_empty());
+}

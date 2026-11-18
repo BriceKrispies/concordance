@@ -225,3 +225,29 @@ fn a_row_under_a_header_in_the_body_gets_no_second_header() {
         "## Topology\n| ID | Component | Owns | Talks to |\n|---|---|---|---|\n| C-1 | Kernel (`k|x`) | Decides \\| plans | C-2 |\n"
     );
 }
+
+#[test]
+fn a_misspelt_requirement_kind_is_reported_not_rendered_silently() {
+    let text = r#"{
+  "exegra": "0.1",
+  "documents": [{"id":"d-k","path":"spec/k.md","role":"requirements"}],
+  "sections": [{"id":"s-1","title":"K","level":1,"document":"d-k","order":1,"body":"\n{{entity:krn-001}}\n{{entity:krn-002}}\n"}],
+  "claims": [
+    {"id":"krn-001","kind":"requirement","ref":"KRN-001","statement":"The kernel SHALL boot.","evaluate":{"method":"example"}},
+    {"id":"krn-002","kind":"Requirment","ref":"KRN-002","statement":"The kernel halts on power loss.","evaluate":{"method":"example"}}
+  ]
+}"#;
+    let x = expand("specs/spec.jsonc", text).unwrap();
+    let misspelt: Vec<&Diagnostic> = x
+        .diagnostics
+        .iter()
+        .filter(|d| d.kind == DiagnosticKind::MisspeltKind)
+        .collect();
+    assert_eq!(misspelt.len(), 1, "diagnostics: {:?}", x.diagnostics);
+    assert_eq!(misspelt[0].entity, "krn-002");
+    assert_eq!(misspelt[0].kind.severity(), Severity::Error);
+    // Only the misspelt kind is reported: the correct spelling and an unrelated kind are not.
+    assert!(super::is_misspelling_of_requirement("Requirement"));
+    assert!(!super::is_misspelling_of_requirement("requirement"));
+    assert!(!super::is_misspelling_of_requirement("note"));
+}

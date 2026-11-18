@@ -221,11 +221,6 @@ impl RequirementAttributes {
         parse_positive(self.milestone.as_deref()?)
     }
 
-    /// The seam as a positive integer; `None` when absent or not one.
-    pub fn seam_number(&self) -> Option<u32> {
-        parse_positive(self.seam.as_deref()?)
-    }
-
     /// The value of attribute `name` (one of [`Self::NAMES`]).
     pub fn get(&self, name: &str) -> Option<&str> {
         match name {
@@ -280,12 +275,15 @@ pub enum RequirementForm {
     Heading,
 }
 
-/// Whether `s` is a requirement ID: an upper-case prefix, optional upper-case/digit
-/// segments, then a number with an optional dotted sub-number: `PSS-003`, `LANG-006.3`,
-/// `UI-12`, `WEB-SEC-004`, `B-5`. The number may carry a one- or two-letter tag
-/// (`PII-T1`, `AI-R3`). Issue-tracker keys (`PROJ-2147`) also match the shape, which
-/// is why IDs are only recognized where they are *defined* (bold paragraph opener or
-/// heading) and where a test *declares* `Verifies:`.
+/// Whether `s` is a requirement ID. This is the one ID grammar: `scan` and `lint` both use it.
+///
+/// An upper-case prefix, optional upper-case/digit segments, then a number of one to four
+/// digits with an optional dotted sub-number, optionally tagged with a one- or two-letter tag:
+/// `KRN-007`, `ARC-106`, `LANG-006.3`, `UI-12`, `WEB-SEC-004`, `B-5`, `PII-T1`, `AI-R3`. Issue
+/// tracker keys (`PROJ-2147`) also match the shape, which is why IDs are only recognized where
+/// they are *defined* (bold paragraph opener or heading) and where a test *declares* `Verifies:`.
+///
+/// Lower-case prefixes, underscores and a missing number are not IDs.
 pub fn is_requirement_id(s: &str) -> bool {
     let mut parts: Vec<&str> = s.split('-').collect();
     if parts.len() < 2 || s.len() > 40 {
@@ -478,4 +476,39 @@ pub struct DocumentIndex {
     /// The engine may replace an id with a previous one when it matches an edited claim.
     pub claims: Vec<Claim>,
     pub prose_references: Vec<ProseReference>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_requirement_id;
+
+    #[test]
+    fn the_one_id_grammar_accepts_the_documented_shapes() {
+        for id in [
+            "KRN-007",
+            "ARC-106",
+            "LANG-006.3",
+            "UI-12",
+            "WEB-SEC-004",
+            "B-5",
+            "PII-T1",
+            "AI-R3",
+        ] {
+            assert!(is_requirement_id(id), "{id} must be an ID");
+        }
+        for not_an_id in [
+            "cli-004",
+            "CLI_004",
+            "CLI-",
+            "CLI",
+            "CLI-00004",
+            "cli-1",
+            "-004",
+        ] {
+            assert!(
+                !is_requirement_id(not_an_id),
+                "{not_an_id} must not be an ID"
+            );
+        }
+    }
 }

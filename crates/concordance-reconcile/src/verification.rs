@@ -37,8 +37,9 @@ use concordance_core::finding::{
 };
 use concordance_core::graph::{EdgeKind, NodeRef, Resolution};
 use concordance_core::testrun::{RunBinding, TestOutcome};
-use concordance_core::{ClaimId, SourceRange, SymbolId};
+use concordance_core::{ClaimId, DocumentId, SourceRange, SymbolId};
 use concordance_graph::Model;
+use std::collections::BTreeMap;
 
 /// Number of obligation claims that carry requirement `id`.
 pub fn obligations_in(model: &Model, id: &str) -> usize {
@@ -546,6 +547,51 @@ pub fn proof_rule_findings(model: &Model, ctx: &BatchContext) -> Vec<Finding> {
             .unwrap_or(Authority::Unknown);
         let claim_ids: Vec<ClaimId> = claims.iter().map(|c| c.id.clone()).collect();
         let spec_loc: Vec<SourceRange> = claims.iter().take(1).map(|c| c.range.clone()).collect();
+        // The same ID defined in two or more documents: the first claim of each.
+        let mut first_in_doc: BTreeMap<DocumentId, SourceRange> = BTreeMap::new();
+        for c in &claims {
+            first_in_doc
+                .entry(c.document.clone())
+                .or_insert_with(|| c.range.clone());
+        }
+        if first_in_doc.len() > 1 {
+            let paths: Vec<String> = first_in_doc
+                .keys()
+                .map(|d| {
+                    model
+                        .documents
+                        .get(d)
+                        .map(|doc| doc.path.as_str().to_string())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let subject = FindingSubject::ProofRule {
+                requirement: req.clone(),
+                rule: "duplicate_id".into(),
+                symbol: None,
+            };
+            out.push(proof_finding(
+                model,
+                ctx,
+                subject,
+                (
+                    FindingStatus::Ambiguous,
+                    FindingCategory::UnclearDocumentation,
+                    Severity::Medium,
+                ),
+                format!(
+                    "Requirement `{req}` is defined in {} documents",
+                    paths.len()
+                ),
+                format!(
+                    "`{req}` opens a requirement in each of {}. A requirement ID names one statement and IDs are never reused: rename one of them, and keep the other as the one that verifies.",
+                    paths.join(", ")
+                ),
+                (claims.iter().map(|c| c.id.clone()).collect(), vec![]),
+                first_in_doc.values().cloned().collect(),
+                authority,
+            ));
+        }
         if proofs.len() > 1 {
             let subject = FindingSubject::ProofRule {
                 requirement: req.clone(),

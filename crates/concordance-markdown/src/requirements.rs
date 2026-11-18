@@ -30,7 +30,7 @@ pub struct AttributeItem {
 /// A requirement as written: ID, statement and attributes, with exact lines.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequirementBlock {
-    /// The ID as written (it may be malformed: see [`RequirementBlock::is_well_formed`]).
+    /// The ID as written (it may be malformed: see [`RequirementBlock::is_recognized`]).
     pub id: String,
     /// Line of the opener.
     pub line: u32,
@@ -59,15 +59,10 @@ impl RequirementBlock {
         self.attributes.iter().find(|a| a.name == name)
     }
 
-    /// Whether the ID has the shape the engine recognizes as a requirement ID.
+    /// Whether the ID has the shape of a requirement ID (see [`concordance_core::doc::is_requirement_id`],
+    /// the one grammar `scan` and `lint` both use).
     pub fn is_recognized(&self) -> bool {
         is_requirement_id(&self.id)
-    }
-
-    /// The specification format: an upper-case prefix, a dash and exactly three digits
-    /// (`CLI-004`, `WEB-SEC-004`).
-    pub fn is_well_formed(&self) -> bool {
-        is_strict_id(&self.id)
     }
 
     /// The attributes as stored on a claim's requirement reference.
@@ -78,18 +73,6 @@ impl RequirementBlock {
         }
         set
     }
-}
-
-/// `PREFIX-NNN`: prefix of upper-case letters/digits (dash-separated segments), exactly
-/// three digits.
-pub fn is_strict_id(s: &str) -> bool {
-    let Some((prefix, num)) = s.rsplit_once('-') else {
-        return false;
-    };
-    num.len() == 3
-        && num.bytes().all(|b| b.is_ascii_digit())
-        && is_requirement_id(s)
-        && !prefix.is_empty()
 }
 
 /// Prose outside any requirement (and not a heading, table or code block).

@@ -228,13 +228,16 @@ pub fn languages() -> &'static concordance_core::lang::Languages {
 }
 
 /// Identifies the extractor build; persisted so that extractor changes force re-indexing.
+/// It also carries the derivation version, so a change to what `apply` or the graph persist
+/// forces re-derivation.
 pub fn extractor_version() -> String {
     format!(
-        "{}+{}+{}+{}",
+        "{}+{}+{}+{}+{}",
         concordance_markdown::EXTRACTOR_VERSION,
         languages().extractor_versions(),
         concordance_reconcile::RULES_VERSION,
-        concordance_exegra::EXTRACTOR_VERSION
+        concordance_exegra::EXTRACTOR_VERSION,
+        concordance_graph::DERIVATION_VERSION
     )
 }
 

@@ -86,16 +86,3 @@ impl EvidenceBuilder<'_> {
         }
     }
 }
-
-/// GitHub-style anchor slug: lowercase, spaces to `-`, punctuation other than `-`/`_` dropped.
-pub fn slug(s: &str) -> String {
-    s.trim()
-        .to_lowercase()
-        .chars()
-        .filter_map(|c| match c {
-            ' ' => Some('-'),
-            c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
-            _ => None,
-        })
-        .collect()
-}

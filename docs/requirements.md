@@ -30,13 +30,13 @@ A bold-ID requirement may carry attribute bullets directly after it (`Verify:`, 
 `Traces:`, `Rationale:`, `Depends:`, `Status:`, `Cases:`, `Milestone:`, `Seam:`). They are stored on the requirement, not extracted as
 claims, and `concordance lint` checks them: see [spec-lint.md](spec-lint.md).
 
-An ID is an upper-case prefix, optional upper-case/digit segments and a number with an optional
-dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`, `B-5`. The number may carry a one- or
-two-letter tag (`PII-T1`, `AI-R3`). IDs are recognised only where they are
-defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
-(`PROJ-2147`) are not requirements. `concordance lint` is stricter than this: its rule R8 accepts only
-`PREFIX-NNN` with three digits, so an ID that `scan` accepts (`P-1`, `LANG-006.3`) is an R8 error under
-`lint`. See [spec-lint.md](spec-lint.md#a-requirement).
+An ID is an upper-case prefix, optional upper-case/digit segments, and a number of one to four digits
+with an optional dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`, `B-5`. The number may carry a
+one- or two-letter tag (`PII-T1`, `AI-R3`). `concordance lint` uses this same grammar (R8 reports an ID
+that does not match it). IDs are recognised only where they are defined (bold opener or heading) and
+where a test declares them, so similar-looking keys in prose (`PROJ-2147`) are not requirements. The
+same ID opened in two documents is a `duplicate_id` proof-rule finding. See
+[spec-lint.md](spec-lint.md#identifiers).
 
 ## Structured sources (Exegra JSONC)
 
@@ -44,7 +44,9 @@ A project may keep its whole specification as **one JSONC file in the Exegra for
 and `/* */` comments and trailing commas), edited as structured data, instead of Markdown files. Name
 the file in `spec_roots` (`--spec-root specs/spec.jsonc`), or leave it under a spec root: a `.jsonc` or
 `.json` file with a top-level `"exegra"` key is a structured source; any other `.json` file is ignored.
-Markdown input is unchanged and may be used alongside.
+Markdown input is unchanged and may be used alongside. The documents of a structured source are
+normative (authority source `SpecFormat`) whatever their RFC keyword count, unless `[authority]` names
+another level for their path.
 
 Concordance reads the file's **properties**, renders each document to Markdown in the formats this
 documentation describes, and indexes that text exactly as it indexes a file. So linking, verification,

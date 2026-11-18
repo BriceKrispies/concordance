@@ -21,7 +21,6 @@ use concordance_core::evidence::{
 };
 use concordance_core::finding::FindingSubject;
 use concordance_core::graph::{Edge, EdgeKind, NodeRef, Resolution};
-use concordance_core::SymbolId;
 use concordance_graph::{Model, Resolved};
 
 const MAX_SITE_CITATIONS: usize = 10;
@@ -796,22 +795,4 @@ pub fn prose_evidence(
         }
     }
     out
-}
-
-/// Symbols a claim is linked to explicitly (resolved reference edges), best first.
-pub fn explicit_symbols<'a>(model: &'a Model, edges: &[Edge]) -> Vec<&'a Symbol> {
-    let mut out: Vec<&Symbol> = edges
-        .iter()
-        .filter(|e| e.kind == EdgeKind::ReferencesSymbol)
-        .filter_map(|e| match &e.to {
-            Some(NodeRef::Symbol(id)) => model.symbols.get(id),
-            _ => None,
-        })
-        .collect();
-    out.dedup_by_key(|s| s.id.clone());
-    out
-}
-
-pub fn symbol_ids(syms: &[&Symbol]) -> Vec<SymbolId> {
-    syms.iter().map(|s| s.id.clone()).collect()
 }

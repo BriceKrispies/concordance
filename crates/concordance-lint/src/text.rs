@@ -47,6 +47,20 @@ pub fn find_word(s: &str, phrase: &str) -> Vec<usize> {
     out
 }
 
+/// Whether `s` has `no` followed by `ever` in the same sentence, with at most four words between
+/// them (`no request ever`, `no user ever sees`). Returns the byte offset of `no`.
+pub fn find_no_ever(s: &str) -> Option<usize> {
+    for off in find_word(s, "no") {
+        let sentence = s[off..].split(['.', ';', '!', '?']).next().unwrap_or("");
+        let words: Vec<String> = tokens(sentence).into_iter().map(|(_, w)| w).collect();
+        // words[0] is `no`; `ever` must come within the next five words.
+        if words.iter().skip(1).take(5).any(|w| w == "ever") {
+            return Some(off);
+        }
+    }
+    None
+}
+
 /// Lowercase alphanumeric tokens with their byte offsets.
 pub fn tokens(s: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
@@ -65,11 +79,86 @@ pub fn tokens(s: &str) -> Vec<(usize, String)> {
 }
 
 const TIME_UNITS: &[&str] = &[
-    "ns", "us", "\u{b5}s", "ms", "s", "sec", "secs", "second", "seconds", "min", "mins", "minute",
-    "minutes", "hour", "hours", "day", "days",
+    "ns",
+    "us",
+    "\u{b5}s",
+    "ms",
+    "s",
+    "sec",
+    "secs",
+    "second",
+    "seconds",
+    "min",
+    "mins",
+    "minute",
+    "minutes",
+    "hour",
+    "hours",
+    "day",
+    "days",
+    "nanosecond",
+    "nanoseconds",
+    "microsecond",
+    "microseconds",
+    "millisecond",
+    "milliseconds",
 ];
 const SIZE_UNITS: &[&str] = &[
-    "b", "kb", "mb", "gb", "tb", "kib", "mib", "gib", "tib", "byte", "bytes", "percent",
+    "b",
+    "kb",
+    "mb",
+    "gb",
+    "tb",
+    "kib",
+    "mib",
+    "gib",
+    "tib",
+    "byte",
+    "bytes",
+    "kilobyte",
+    "kilobytes",
+    "megabyte",
+    "megabytes",
+    "gigabyte",
+    "gigabytes",
+    "terabyte",
+    "terabytes",
+    "percent",
+];
+/// Number words. `a`/`an` are not among them: "a second copy" is not a limit.
+const NUMBER_WORDS: &[&str] = &[
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+    "hundred",
+    "thousand",
+    "million",
+    "billion",
 ];
 const LIMIT_PHRASES: &[&str] = &[
     "at most",
@@ -87,9 +176,53 @@ const LIMIT_PHRASES: &[&str] = &[
 ];
 
 /// The first time, size or count limit in `s` (already code-masked): a number with a unit
-/// (`5 ms`, `10MB`, `90%`), or a number after `at most`, `no more than`, ... Returns the
-/// byte offset and the phrase.
+/// (`5 ms`, `10MB`, `90%`, `five milliseconds`), or a number after `at most`, `no more than`, ...
+/// (digits or number words). The word `one` after a phrase is not counted (`at least one retry`
+/// is an existence, not a bound). Returns the byte offset and the phrase.
 pub fn find_limit(s: &str) -> Option<(usize, String)> {
+    match (find_limit_digits(s), find_limit_words(s)) {
+        (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// A number word with a time or size unit, or a limit phrase directly before it.
+fn find_limit_words(s: &str) -> Option<(usize, String)> {
+    let toks = tokens(s);
+    for (k, (off, w)) in toks.iter().enumerate() {
+        if !NUMBER_WORDS.contains(&w.as_str()) {
+            continue;
+        }
+        let end = off + w.len();
+        if let Some((noff, nw)) = toks.get(k + 1) {
+            let gap = &s[end..*noff];
+            if gap.chars().all(|c| c == ' ')
+                && (TIME_UNITS.contains(&nw.as_str()) || SIZE_UNITS.contains(&nw.as_str()))
+            {
+                return Some((*off, format!("{w} {nw}")));
+            }
+        }
+        if w == "one" {
+            continue;
+        }
+        let before = s[..*off].trim_end().to_lowercase();
+        for p in LIMIT_PHRASES {
+            if before.ends_with(p)
+                && !before[..before.len() - p.len()]
+                    .chars()
+                    .next_back()
+                    .is_some_and(is_word_char)
+            {
+                let phrase_start = before.len() - p.len();
+                return Some((phrase_start, format!("{p} {w}")));
+            }
+        }
+    }
+    None
+}
+
+/// The digit form of [`find_limit`].
+fn find_limit_digits(s: &str) -> Option<(usize, String)> {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {

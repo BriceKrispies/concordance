@@ -98,6 +98,9 @@ pub enum DiagnosticKind {
     /// A requirement that no rendered section places with a marker. It is never rendered, so no
     /// lint and no verification sees it, and it is left out.
     UnplacedEntity,
+    /// A claim whose `kind` is a misspelling of `requirement` (`Requirement`, `requirment`). It is
+    /// rendered as prose, so no requirement rule checks it.
+    MisspeltKind,
 }
 
 impl DiagnosticKind {
@@ -113,6 +116,7 @@ impl DiagnosticKind {
             DiagnosticKind::DanglingReference => "dangling-reference",
             DiagnosticKind::UnmatchedCasesPath => "unmatched-cases-path",
             DiagnosticKind::UnplacedEntity => "unplaced-entity",
+            DiagnosticKind::MisspeltKind => "misspelt-kind",
         }
     }
 
@@ -254,6 +258,28 @@ pub(crate) struct Entity<'a> {
     pub line: usize,
     /// The top-level key of the array (`claims`, `goals`, ...).
     pub list: &'a str,
+}
+
+/// Whether `kind` is a misspelling of `requirement`: not the exact word, but the same letters in
+/// another case, or at most two edits away (`Requirement`, `requirment`, `requirments`).
+pub(crate) fn is_misspelling_of_requirement(kind: &str) -> bool {
+    const WORD: &str = "requirement";
+    kind != WORD && edit_distance(&kind.to_ascii_lowercase(), WORD) <= 2
+}
+
+/// Levenshtein distance between `a` and `b`.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let sub = prev[j] + usize::from(ca != *cb);
+            cur.push(sub.min(prev[j + 1] + 1).min(cur[j] + 1));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
 }
 
 pub(crate) fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -484,6 +510,22 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
             document_id: id.to_string(),
             source_line: d.line,
         });
+    }
+    // A misspelt requirement kind is prose to every rule: say so.
+    for e in lists.get("claims").unwrap_or(&empty) {
+        let Some(kind) = str_of(e.value, "kind") else {
+            continue;
+        };
+        if is_misspelling_of_requirement(kind) {
+            diagnostics.push(Diagnostic {
+                kind: DiagnosticKind::MisspeltKind,
+                entity: str_of(e.value, "id").unwrap_or("").to_string(),
+                line: e.line,
+                message: format!(
+                    "claim kind `{kind}` is not `requirement`, so the entity is rendered as prose and no requirement rule checks it; write `requirement`"
+                ),
+            });
+        }
     }
     // A requirement that no rendered section places is in no document: say so.
     for e in lists.get("claims").unwrap_or(&empty) {

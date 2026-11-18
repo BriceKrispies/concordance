@@ -12,6 +12,7 @@
 //! * **uncertainty / drift**: [`finding::Finding`]s, whose status never claims more
 //!   than their evidence supports.
 
+pub mod anchor;
 pub mod code;
 pub mod config;
 pub mod doc;
@@ -22,6 +23,7 @@ pub mod graph;
 pub mod ids;
 pub mod lang;
 pub mod location;
+pub mod similarity;
 pub mod testrun;
 pub mod virtual_doc;
 

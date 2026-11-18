@@ -54,10 +54,17 @@ struct Walker {
     headers: Vec<String>,
     cells: Vec<Inline>,
     image_depth: usize,
+    /// The text after a list item's line is a paragraph of its own: a requirement opener that
+    /// follows an attribute bullet without a blank line is lazy continuation text of the item in
+    /// CommonMark, and must not be read as an attribute of the item above.
+    lazy_paragraph: bool,
 }
 
 impl Walker {
     fn kind(&self) -> BlockKind {
+        if self.lazy_paragraph {
+            return BlockKind::Paragraph;
+        }
         match self.containers.last() {
             Some(Container::Item) => BlockKind::ListItem,
             Some(Container::Quote) => BlockKind::BlockQuote,
@@ -80,6 +87,7 @@ impl Walker {
                 });
             }
         }
+        self.lazy_paragraph = false;
     }
 
     fn inline(&mut self) -> &mut Inline {
@@ -100,7 +108,7 @@ impl Walker {
         self.inline().push_text(s, bytes);
     }
 
-    fn handle(&mut self, ev: Event<'_>, range: std::ops::Range<usize>) {
+    fn handle(&mut self, ev: Event<'_>, range: std::ops::Range<usize>, source: &str) {
         let bytes = (range.start, range.end);
         match ev {
             Event::Start(tag) => self.start(tag, bytes),
@@ -119,6 +127,19 @@ impl Walker {
                 if let Some(c) = self.code.as_mut() {
                     c.content.push('\n');
                 } else {
+                    // A requirement opener on the line after an item (no blank line between)
+                    // starts a paragraph, not a continuation of the item's attributes.
+                    let next = source.get(range.end..).unwrap_or("");
+                    let opens_requirement = next.trim_start_matches([' ', '\t']).starts_with("**");
+                    if opens_requirement
+                        && self.heading.is_none()
+                        && !self.in_cell
+                        && self.containers.last() == Some(&Container::Item)
+                    {
+                        self.flush();
+                        self.lazy_paragraph = true;
+                        return;
+                    }
                     if let Some(h) = self.heading.as_mut() {
                         h.1.push(' ');
                     }
@@ -258,7 +279,7 @@ pub fn walk(text: &str) -> Vec<Raw> {
     let mut w = Walker::default();
     let parser = Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH);
     for (ev, range) in parser.into_offset_iter() {
-        w.handle(ev, range);
+        w.handle(ev, range, text);
     }
     w.flush();
     w.out

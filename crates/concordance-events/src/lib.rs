@@ -178,11 +178,6 @@ impl Subscription {
         self.cursor
     }
 
-    /// Jump to the head (after a resync).
-    pub fn reset_to(&mut self, seq: u64) {
-        self.cursor = seq;
-    }
-
     /// Non-blocking read of the next event, if already published.
     pub fn try_next(&mut self) -> Option<Next> {
         match self.bus.read_after(self.cursor) {
