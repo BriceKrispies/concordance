@@ -37,6 +37,8 @@ struct Builder<'a> {
     hints: &'a Hints,
     /// Authority a hint sets for the text block being processed.
     block_authority: Option<Authority>,
+    /// An ID opening the text block being processed may define a requirement.
+    block_ids_ok: bool,
 }
 
 /// The requirement ID a heading defines: its first word, if that word is an ID
@@ -238,7 +240,10 @@ impl<'a> Builder<'a> {
             split_sentences(text, &cranges)
         };
         let section_id = self.sections[sec].id.clone();
-        let opener = requirements::opener(self.lines.source(), inline, false);
+        // A descriptive document (and the white paper) states facts; an ID that opens one of
+        // its lines is a label, not a requirement. The statement keeps the ID as text.
+        let opener =
+            requirements::opener(self.lines.source(), inline, false).filter(|_| self.block_ids_ok);
         self.block_req = hint
             .and_then(|h| h.requirement.clone())
             .or_else(|| opener.as_ref().map(|(id, _)| id.clone()));
@@ -388,6 +393,7 @@ pub fn build(
     configured: Option<AuthorityAssessment>,
     languages: &Languages,
     hints: &Hints,
+    whitepaper: bool,
 ) -> DocumentIndex {
     let front = authority::front_matter(text);
     let parse_text = match &front {
@@ -410,6 +416,10 @@ pub fn build(
         front.and_then(|f| f.authority),
         rfc_keyword_count(&raws),
     );
+    // Register-style IDs define requirements only in normative documents, and never in the
+    // white paper. A block with attribute bullets is an explicit requirement, so it keeps
+    // its ID in a descriptive document too (but not in the white paper).
+    let ids_define = assessment.level == Authority::Normative && !whitepaper;
     let document = Document {
         id: doc_id.clone(),
         path: path.clone(),
@@ -434,6 +444,7 @@ pub fn build(
         block_attrs: RequirementAttributes::default(),
         hints,
         block_authority: None,
+        block_ids_ok: ids_define,
     };
     let found = requirements::find(&raws, text, &lines);
 
@@ -497,7 +508,11 @@ pub fn build(
                 });
                 start_lines.push(start_line);
                 let inherited = b.sec_req[parent_idx].clone();
-                b.sec_req.push(heading_requirement(plain).or(inherited));
+                b.sec_req.push(
+                    heading_requirement(plain)
+                        .filter(|_| ids_define)
+                        .or(inherited),
+                );
                 stack.push((*level, idx));
                 current = idx;
                 let sid = b.sections[idx].id.clone();
@@ -514,13 +529,13 @@ pub fn build(
                 if found.attribute_raws.contains(&raw_index) {
                     continue; // an attribute of the requirement above, not a claim
                 }
-                b.block_attrs = found
-                    .openers
-                    .get(&raw_index)
-                    .map(|k| &found.blocks[*k])
+                let explicit = found.openers.get(&raw_index).map(|k| &found.blocks[*k]);
+                b.block_attrs = explicit
                     .filter(|blk| blk.is_recognized())
                     .map(|blk| blk.attribute_set())
                     .unwrap_or_default();
+                let has_attrs = explicit.is_some_and(|blk| !blk.attributes.is_empty());
+                b.block_ids_ok = ids_define || (!whitepaper && has_attrs);
                 b.text_block(current, *kind, inline, *whole_row);
                 b.block_req = None;
                 b.block_attrs = RequirementAttributes::default();

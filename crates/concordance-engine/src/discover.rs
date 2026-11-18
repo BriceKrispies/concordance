@@ -208,12 +208,15 @@ fn is_same_dir(a: &Path, b: &Path) -> bool {
 /// `[authority]` globs from the configuration file.
 pub struct AuthorityRules {
     rules: Vec<(Authority, GlobSet, Vec<String>)>,
+    /// The white paper (`[lint] whitepaper`), repository-relative, if it is inside the repository.
+    whitepaper: Option<RepoPath>,
 }
 
 impl AuthorityRules {
     pub fn new(config: &Config) -> Self {
         let a = &config.authority;
         AuthorityRules {
+            whitepaper: RepoPath::from_fs(&config.repo_root, &config.lint.whitepaper),
             rules: vec![
                 (
                     Authority::Normative,
@@ -232,6 +235,11 @@ impl AuthorityRules {
                 ),
             ],
         }
+    }
+
+    /// Whether `path` is the file named by `[lint] whitepaper`.
+    pub fn is_whitepaper(&self, path: &RepoPath) -> bool {
+        self.whitepaper.as_ref() == Some(path)
     }
 
     pub fn assess(&self, path: &RepoPath) -> Option<AuthorityAssessment> {

@@ -99,6 +99,87 @@ Floats MUST be finite.
     );
 }
 
+fn index_as(path: &str, text: &str, level: Authority, whitepaper: bool) -> DocumentIndex {
+    let langs = Languages::new(vec![std::sync::Arc::new(concordance_rust::RustPlugin)]);
+    let configured = AuthorityAssessment {
+        level,
+        source: AuthoritySource::Configured,
+        rationale: "test".into(),
+    };
+    index_document_for(
+        &RepoPath::from_relative_str(path).unwrap(),
+        text,
+        Some(configured),
+        &langs,
+        whitepaper,
+    )
+}
+
+const REGISTER_LINE: &str =
+    "# Vision\n\n## Goals\n\n- **G-47** Tenant automation cannot reach the platform network.\n";
+
+#[test]
+fn register_id_opener_is_no_requirement_in_a_descriptive_document_or_the_white_paper() {
+    let d = index_as(
+        "specifications/00-vision/vision.md",
+        REGISTER_LINE,
+        Authority::Descriptive,
+        false,
+    );
+    assert!(
+        d.claims.iter().all(|c| c.requirement.is_none()),
+        "a descriptive document defines no requirement by an ID opener"
+    );
+    let claim = d
+        .claims
+        .iter()
+        .find(|c| c.text.contains("Tenant automation cannot reach"))
+        .expect("the line stays an ordinary prose claim");
+    assert!(
+        claim.text.contains("G-47"),
+        "the ID is kept as text, not stripped as a label: {}",
+        claim.text
+    );
+
+    // The same line in the file named by `[lint] whitepaper` is never a requirement either,
+    // even when the file is configured normative.
+    let w = index_as(
+        "docs/whitepaper.md",
+        REGISTER_LINE,
+        Authority::Normative,
+        true,
+    );
+    assert!(w.claims.iter().all(|c| c.requirement.is_none()));
+}
+
+#[test]
+fn register_id_opener_defines_a_requirement_in_a_normative_document() {
+    let d = index_as(
+        "specifications/spec.md",
+        REGISTER_LINE,
+        Authority::Normative,
+        false,
+    );
+    let claim = d
+        .claims
+        .iter()
+        .find(|c| c.text.contains("Tenant automation cannot reach"))
+        .expect("claim");
+    let req = claim
+        .requirement
+        .as_ref()
+        .expect("normative opener defines G-47");
+    assert_eq!(
+        (req.id.as_str(), req.form),
+        ("G-47", RequirementForm::Inline)
+    );
+    assert!(
+        !claim.text.contains("G-47"),
+        "label stripped: {}",
+        claim.text
+    );
+}
+
 #[test]
 fn requirement_id_shape() {
     use concordance_core::doc::is_requirement_id as ok;

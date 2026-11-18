@@ -25,7 +25,7 @@ use concordance_core::lang::Languages;
 use std::collections::HashMap;
 
 /// Bump when extraction output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "md-10";
+pub const EXTRACTOR_VERSION: &str = "md-11";
 use concordance_core::RepoPath;
 
 /// Extract sections, claims, references and authority from one Markdown file.
@@ -38,7 +38,27 @@ pub fn index_document(
     configured: Option<AuthorityAssessment>,
     languages: &Languages,
 ) -> DocumentIndex {
-    index::build(path, text, configured, languages, &Hints::default())
+    index_document_for(path, text, configured, languages, false)
+}
+
+/// [`index_document`] for a file that may be the white paper (`[lint] whitepaper`). Lines
+/// that open with a requirement ID are never requirements in the white paper, whatever its
+/// authority.
+pub fn index_document_for(
+    path: &RepoPath,
+    text: &str,
+    configured: Option<AuthorityAssessment>,
+    languages: &Languages,
+    whitepaper: bool,
+) -> DocumentIndex {
+    index::build(
+        path,
+        text,
+        configured,
+        languages,
+        &Hints::default(),
+        whitepaper,
+    )
 }
 
 /// What a caller that generated the Markdown knows about some of its blocks, keyed by
@@ -69,7 +89,7 @@ pub fn index_document_with(
     languages: &Languages,
     hints: &Hints,
 ) -> DocumentIndex {
-    index::build(path, text, Some(authority), languages, hints)
+    index::build(path, text, Some(authority), languages, hints, false)
 }
 
 pub use citations::{extract_citations, parse_citation, CitationMatch};

@@ -811,7 +811,13 @@ fn parse_one(
                 return Ok(None);
             }
             Ok(Some(Parsed::Doc(Box::new(
-                concordance_markdown::index_document(&t.rel, &text, configured, crate::languages()),
+                concordance_markdown::index_document_for(
+                    &t.rel,
+                    &text,
+                    configured,
+                    crate::languages(),
+                    rules.is_whitepaper(&t.rel),
+                ),
             ))))
         }
         FileKind::Source(lang) => {
