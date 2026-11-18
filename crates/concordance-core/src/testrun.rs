@@ -168,8 +168,12 @@ fn parse_junit(text: &str) -> Vec<(String, TestOutcome)> {
         let body = if tag.ends_with('/') {
             ""
         } else {
-            let close = rest.find("</testcase>").unwrap_or(rest.len());
-            &rest[tag_end..close]
+            match rest.find("</testcase>") {
+                Some(close) => &rest[tag_end..close],
+                // The file ends inside this testcase (a run killed or a report cut short):
+                // its failure element, if any, is not in the file, so no outcome is recorded.
+                None => break,
+            }
         };
         if let Some(name) = attr(tag, "name") {
             let name = match attr(tag, "classname") {
@@ -479,5 +483,16 @@ test result: FAILED. 1 passed; 1 failed
         assert_eq!(r.get("top level"), Some(&TestOutcome::Passed));
         assert_eq!(r.get("after an empty suite"), Some(&TestOutcome::Passed));
         assert_eq!(r.len(), 5);
+    }
+
+    #[test]
+    fn junit_testcase_cut_off_before_its_end_has_no_outcome() {
+        // The file stops after the start tag of a failing test: the failure element never
+        // arrived, so the test must not be read as passed.
+        let cut = "<testsuites><testsuite name=\"x\">\n<testcase name=\"done\" classname=\"s\"></testcase>\n<testcase name=\"cut\" classname=\"s\">\n";
+        let r = parse(cut);
+        assert_eq!(r.get("done"), Some(&TestOutcome::Passed));
+        assert_eq!(r.get("cut"), None);
+        assert_eq!(r.len(), 1);
     }
 }
