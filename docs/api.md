@@ -5,7 +5,11 @@ serialization of the types in `crates/concordance-core` (snake_case enums, ids a
 `doc_`, `sec_`, `clm_`, `src_`, `sym_`, `rel_`, `evd_`, `fnd_`, `ana_`). The server listens on
 `127.0.0.1` by default.
 
-Errors: non-2xx with `{"error": {"code": "not_found" | "bad_request" | "conflict" | "internal", "message": "..."}}`.
+Errors from the handlers: non-2xx with `{"error": {"code": "not_found" | "bad_request" | "conflict", "message": "..."}}`.
+The guard in front of every route answers `403 Forbidden` with a plain-text body (`host not allowed`,
+`cross-origin request refused`, `cross-site request refused`). On a loopback bind, a `Host` other than
+`localhost`, `127.0.0.1` or `::1` is refused. For any bind, a non-GET request whose `Origin` names another
+host, or whose `Sec-Fetch-Site` is `cross-site`, is refused.
 
 Collections are paginated: query `limit` (default 50, max 500) and `offset` (default 0); response
 `Page<T>` = `{"items": [T], "total": n, "offset": n, "limit": n}`.

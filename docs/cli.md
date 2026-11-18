@@ -18,9 +18,12 @@ Roots may be absolute or relative to the repository. A `--spec-root` may name a 
 example the structured specification (`--spec-root specs/spec.jsonc`, see
 [requirements.md](requirements.md#structured-sources-exegra-jsonc)). Without `--config`, `concordance.toml` in
 the repository is used if it exists. Command-line values override the file; a repeated
-`--spec-root`/`--src-root` replaces the file's whole list. See `examples/concordance.toml` for the
-schema (it is intentionally small: roots, excludes, state dir, authority globs, semantic, server). `[gate] started_milestones = [1, 2]` marks the milestones that
-count; `[lint] require_milestone = true` requires `Milestone:` on every requirement.
+`--spec-root`/`--src-root` replaces the file's whole list. When neither the command line nor the file
+names a root, the repository root is used for both spec and source roots. `examples/concordance.toml`
+lists every key of the file and says what each one does. `test_results` in the file and
+`--test-results` on the command line are the same setting; the command line replaces the file's list.
+`[gate] started_milestones = [1, 2]` marks the milestones that count; `[lint] require_milestone = true`
+requires `Milestone:` on every requirement.
 
 `repo` may be a plain parent directory whose spec and source roots are separate git repositories
 (a workspace). Each root's own `.gitignore` applies, and every `package.json` under the source
@@ -31,14 +34,33 @@ roots is a TypeScript package.
 | Code | Meaning |
 |---|---|
 | 0 | Success. With `--fail-on`, the gate passed. |
-| 1 | The `--fail-on` gate failed (for `lint`: at least one error, or with `--strict` any finding): `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge. |
+| 1 | `scan` and `report`: the `--fail-on` gate failed. `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge. `lint` has no `--fail-on`: it exits 1 when it has at least one error, and with `--strict` every warning counts as an error (info-level hints never do). |
 | 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`, a `[repos]` entry that is not a git repository or whose `cited` revision does not exist). |
 | 3 | Runtime error (state database, I/O, cannot bind the port). |
 
 `unverified`, `planned`, `ambiguous`, `stale` and `undocumented` findings never fail the gate: they are not
 violations. With `[gate] started_milestones`, findings of requirements whose `Milestone:` is not started are
-left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requirements.md](requirements.md#milestones). Missing Claude is never treated as successful semantic verification. The report's
+left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requirements.md](requirements.md#milestones).
+Missing Claude is never treated as successful semantic verification. The report's
 `semantic.coverage` field states exactly what was and was not assessed.
+
+## Statuses
+
+| Status | Meaning |
+|---|---|
+| `verified` | Evidence establishes the claim: a matching documented signature, a satisfied deterministic constraint, a passing test in a run recorded after the last source change, or a semantic agreement that a challenge upheld. |
+| `violated` | Contradicted: a structural contradiction (a dangling reference, a differing signature, a constant outside a documented bound, an unsafe or panic site where the claim forbids one, a forbidden dependency), a failing test, a proof-rule breach, or a semantic contradiction that survived a challenge. Its `category` says which. |
+| `unverified` | Nothing establishes the claim either way. This includes a test result recorded before a source change (re-run the tests), a requirement no test declares `Verifies:` for, and a suspected contradiction that has not been confirmed. |
+| `planned` | An `unverified` requirement whose milestone is not in `[gate] started_milestones`. |
+| `stale` | Evidence the status rests on was invalidated and not re-established (semantic evidence after a change), or cited code changed at the `compare` revision (`citation_drift`). Never a gate failure. |
+| `ambiguous` | The claim cannot be read one way: vague or self-contradictory wording, conflicting bounds, a requirement declared by more than one proof, or a semantic `ambiguous` verdict. |
+| `undocumented` | Implementation behaviour (panics, error returns, environment reads, missing contract on public API) that no claim covers. Reported as `missing_documentation`. |
+
+A **resolved** finding is not a status but a lifecycle: its subject no longer shows the issue or no longer
+exists. It is kept in the state, hidden unless `--include-resolved` is given, and not counted by the gate.
+Human output lists every `violated`, `stale` and `ambiguous` finding and the first ten of each other status;
+`-v`/`--verbose` lists them all.
+`--force` re-parses every file even when its content hash is unchanged.
 
 ## Output
 
@@ -49,6 +71,10 @@ left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requi
 - `scan --jsonl` prints every event envelope as one line, then the report as the last line.
 - `watch` streams events until Ctrl+C; with `--jsonl` the stream is machine-readable.
 - `report` reads persisted state without scanning or probing Claude.
+- `serve` listens on `127.0.0.1:4173` unless `--host` or `[server]` says otherwise (`--port` likewise). A
+  non-loopback address exposes the UI to the network.
+- `lint` (`--json`) prints `tool`, `command`, `strict`, `errors`, `warnings`, `infos` and `findings[]`; see
+  [spec-lint.md](spec-lint.md).
 
 - In a virtual document (rendered from a structured source) every location is followed by its origin:
   `specifications/kernel.md:23 (specifications/spec.jsonc:1320 krn-002)`. `scan --json` and
@@ -147,12 +173,15 @@ decides it; a citation in plain prose gets its own finding keyed by the document
 ## Semantic analysis
 
 `--semantic` (or `[semantic] enabled = true`) uses the local Claude Code CLI. The binary is
-`claude`, or whatever `claude_path` names. It is invoked as:
+`claude`, or whatever `claude_path` names. With `[semantic] context = "excerpts"` it is invoked as:
 
 ```
 claude -p --output-format json --json-schema <schema> --tools "" --no-session-persistence \
        --setting-sources "" --system-prompt <...> --model <model>
 ```
+
+The default, `context = "explore"`, adds read-only repository tools and a turn limit (`max_turns`):
+`--tools Read,Grep,Glob --allowedTools Read,Grep,Glob --add-dir <repo> --max-turns <n> --strict-mcp-config`.
 
 The prompt goes on stdin, and the working directory is a neutral folder inside the state directory.
 If the CLI is missing, a `system.warning` is emitted, the status reports `available: false`, and

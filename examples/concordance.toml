@@ -1,12 +1,13 @@
 # Example configuration. Place as `concordance.toml` in the analyzed repository, or
 # anywhere and pass `--config path/to/file.toml`. Every key is optional; command-line
-# flags override it (--repo, --spec-root, --src-root, --state-dir, --semantic, --model,
-# --host, --port).
+# flags override it (--repo, --spec-root, --src-root, --state-dir, --test-results,
+# --semantic or --no-semantic, --model, --host, --port). Unknown keys are an error.
 
 repo = "/path/to/repo"                 # relative paths resolve against this file's directory
 spec_roots = ["docs/specifications", "docs/architecture"]
 src_roots = ["crates", "src"]
 exclude = ["docs/archive/**"]           # globs relative to the repository root
+# test_results = ["ci/test-output.txt"]  # recorded test runs (libtest, nextest, JUnit XML, vitest/jest, TRX, lake build logs); relative to this file
 # state_dir = "C:/somewhere/else"       # default: %LOCALAPPDATA%\concordance\<repo>-<hash>
 
 [authority]                              # globs; first matching list wins, in this order
@@ -19,6 +20,10 @@ whitepaper = "docs/whitepaper.md"
 strict = false                           # true: warnings fail the lint too
 # vague_words = ["fast", "secure"]       # replaces the built-in banned words
 # internal_markers = ["shard"]           # added to the built-in internal-detail words
+# require_milestone = true               # every requirement needs a valid Milestone: (and Seam: no greater than it)
+# spec = ["docs/specifications/**"]      # lint only the normative files matching these globs
+# [lint.rules.said_once]                 # semantic rules S1-S9 (docs/spec-lint.md): enabled, severity, and per-rule keys
+# threshold_percent = 75
 
 [semantic]
 enabled = true                           # requires the Claude Code CLI on PATH
@@ -38,7 +43,7 @@ host = "127.0.0.1"
 port = 4173
 
 # Citations of other repositories: `[APP:apps/api/src/catalog.ts:67-132]` in a spec is
-# checked against this repository at `cited` (see docs/cli.md, "Citations").
+# checked against the repository at `path`, at the revision `cited` (see docs/cli.md, "Citations").
 [repos.APP]
 path = "../platform"     # a git repository; relative to this file
 cited = "27e5fb9"                        # the revision the citations were written against

@@ -34,7 +34,9 @@ An ID is an upper-case prefix, optional upper-case/digit segments and a number w
 dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`, `B-5`. The number may carry a one- or
 two-letter tag (`PII-T1`, `AI-R3`). IDs are recognised only where they are
 defined (bold opener or heading) and where a test declares them, so similar-looking keys in prose
-(`PROJ-2147`) are not requirements.
+(`PROJ-2147`) are not requirements. `concordance lint` is stricter than this: its rule R8 accepts only
+`PREFIX-NNN` with three digits, so an ID that `scan` accepts (`P-1`, `LANG-006.3`) is an R8 error under
+`lint`. See [spec-lint.md](spec-lint.md#a-requirement).
 
 ## Structured sources (Exegra JSONC)
 
@@ -62,9 +64,13 @@ documents*; nothing is written to disk.
 | Entity | Rendered |
 |---|---|
 | requirement (`claims[]`, `"kind":"requirement"`) | `**<ref>** <statement>` and attribute bullets, below |
-| goal, non-goal, constraint, decision, open question | `- **<ref>** <statement>` (a decision with no `statement` uses its `title`) |
-| boundary, component | a table row `\| <ref> \| <name> \| <interfaceKind or category> \| <usedBy or purpose> \|`, preceded by a header and separator row when the previous line is not a row of the same table |
-| any other entity (term, release stage, milestone, ...) | one paragraph of its main text properties: `<name, title or term>: <purpose, statement, definition, proves, detail, exitEvidence, description>` |
+| goal, non-goal, constraint, decision, open question | `- **<ref>** <statement>`. A non-goal's `horizon` is written in italics before the statement; a goal's `stage` in italics after it. A decision with no `statement` uses its `title` |
+| boundary | a table row `\| <ref> \| <name> \| <interfaceKind> \| <usedBy> \|`, preceded by a header and separator row when the previous line is not a row of the same table |
+| component | a table row `\| <ref> \| <name> \| <purpose> \| <talksTo> \|`, with the same header rule |
+| release stage | a table row `\| <ref> \| <name> \| <purpose> \| <milestones> \| <exitEvidence> \|`, the stage's name in bold in the first column |
+| milestone | its `detail` lines, as they are (with no `detail`, one paragraph) |
+| term | a list item `- **<term>**: <definition>` (`- **<term>**` alone with no definition) |
+| any other entity | one paragraph of its main text properties: `<name or title>: <purpose, statement, definition, proves, detail, exitEvidence, description>` |
 
 **The Exegra requirement profile.** A requirement is a `claims[]` entity with `"kind":"requirement"`.
 These properties are read, and an attribute bullet is written only when its property is present, in
@@ -171,14 +177,15 @@ fn nested_comment_ends_at_the_balancing_close() { ... }
 
 A `Verifies:` line in a test function's doc comment links it to one or more requirements
 (`Verifies: LANG-006.3, LANG-006.4`). A `Verifies:` naming an ID that no specification defines is
-reported as a violated finding on the test.
+reported as a violated finding on the test. A `#[test]` declared inside a `proptest!` block is indexed
+as a test like any other, with its own name and `Verifies:` line.
 
 Beyond the unknown ID, `scan` reports two more breaches of the proof rules as findings
 (see [spec-lint.md](spec-lint.md#proof-checks-in-scan)): a requirement declared by more than one
 proof, and a proof whose resolved calls all go to non-public symbols.
 
-TypeScript/JavaScript tests (`it(...)` / `test(...)`, inside any `describe(...)`) take the
-`Verifies:` line from the comment directly above the call:
+TypeScript/JavaScript tests (`it(...)` / `test(...)`, at any depth, with or without an enclosing
+`describe(...)`) take the `Verifies:` line from the comment directly above the call:
 
 ```ts
 describe("Mixer", () => {
