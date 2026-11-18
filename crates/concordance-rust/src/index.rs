@@ -679,6 +679,13 @@ impl Walker {
                     m.to_token_stream(),
                     None,
                 );
+                if m.content.is_none() {
+                    // An out-of-line declaration (`mod x;`) is marked, so the graph can tell which
+                    // files the module tree reaches.
+                    if let Some(sym) = self.symbols.iter_mut().rev().find(|s| s.id == id) {
+                        sym.attributes.push(EXTERNAL_MOD_ATTRIBUTE.to_string());
+                    }
+                }
                 if let Some((_, inner)) = &m.content {
                     let mut path = sc.path.clone();
                     path.push(name);

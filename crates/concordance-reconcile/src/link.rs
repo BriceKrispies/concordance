@@ -329,7 +329,7 @@ pub fn symbol_edges(model: &Model, sym: &Symbol) -> Vec<Edge> {
             CallTarget::Path { segments } => segments.join("::"),
             CallTarget::Method { name } => format!(".{name}()"),
         };
-        let Some((to, res, conf)) = resolve_call(model, imports, &call.target, krate) else {
+        let Some((to, res, conf)) = resolve_call(model, imports, &call.target, krate, sym) else {
             continue;
         };
         if to == sym.id {
@@ -409,7 +409,15 @@ fn resolve_call(
     imports: &[Import],
     target: &CallTarget,
     krate: Option<&str>,
+    caller: &Symbol,
 ) -> Option<(SymbolId, Resolution, f32)> {
+    // A private item of another crate cannot be called from this one, whatever its name.
+    let reachable = |id: &SymbolId| {
+        model
+            .symbols
+            .get(id)
+            .is_some_and(|s| s.is_public_api || s.path.first().map(String::as_str) == krate)
+    };
     match target {
         // The receiver's type is not known, so the method name is all there is to match. The
         // edge is labelled `NameOnly`: it does not say which method was called.
@@ -420,7 +428,7 @@ fn resolve_call(
                 Resolved::Ambiguous(ids) => ids,
                 _ => return None,
             };
-            ids.retain(|id| is_callable_symbol(model, id));
+            ids.retain(|id| is_callable_symbol(model, id) && reachable(id));
             // Method calls with many candidates are noise; keep small ambiguity sets only.
             let n = ids.len();
             if n == 0 || n > 3 {
@@ -430,15 +438,39 @@ fn resolve_call(
         }
         CallTarget::Path { segments } => {
             let expanded = expand_import(imports, segments);
+            // A bare name that is not imported is looked up in the caller's own file first: a
+            // function written beside the caller shadows a same-named item elsewhere.
+            if let (None, [name]) = (&expanded, segments.as_slice()) {
+                let mut local: Vec<&Symbol> = model
+                    .symbols_named(name)
+                    .filter(|s| {
+                        s.file == caller.file && s.kind == SymbolKind::Function && s.id != caller.id
+                    })
+                    .collect();
+                local.sort_by(|a, b| a.id.cmp(&b.id));
+                match local.len() {
+                    0 => {}
+                    1 => return Some((local[0].id.clone(), Resolution::Exact, 1.0)),
+                    n if n <= 3 => {
+                        let n = n as u32;
+                        return Some((
+                            local[0].id.clone(),
+                            Resolution::Ambiguous { candidates: n },
+                            1.0 / n as f32,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
             let path = expanded.as_deref().unwrap_or(segments.as_slice());
             let single = |id: SymbolId, res: Resolution, conf: f32| {
-                is_callable_symbol(model, &id).then_some((id, res, conf))
+                (is_callable_symbol(model, &id) && reachable(&id)).then_some((id, res, conf))
             };
             match model.resolve_path(path, krate) {
                 Resolved::Exact(id) => single(id, Resolution::Exact, 1.0),
                 Resolved::UniqueSuffix(id) => single(id, Resolution::UniqueSuffix, 0.8),
                 Resolved::Ambiguous(mut ids) => {
-                    ids.retain(|id| is_callable_symbol(model, id));
+                    ids.retain(|id| is_callable_symbol(model, id) && reachable(id));
                     match ids.len() {
                         0 => None,
                         1 => Some((ids.swap_remove(0), Resolution::UniqueSuffix, 0.8)),
