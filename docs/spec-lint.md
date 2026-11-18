@@ -1,8 +1,9 @@
 # Specification lint
 
 `concordance lint [--strict] [--json]` checks that a specification follows the requirement format of
-the spec-driven workflow (`docs/agents/spec-format.md` and `verification.md` in that template). The
-lint reads the Markdown specification, the white paper and the indexed code. It never runs code.
+the spec-driven workflow. That workflow's template is not part of this repository; this document is the
+reference for what the lint checks. The lint reads the Markdown specification, the white paper and the
+indexed code. It never runs code.
 
 ```
 concordance lint [common] [--strict] [--json]
@@ -10,8 +11,8 @@ concordance lint [common] [--strict] [--json]
 
 Exit status: 0 when there is no error, 1 when there is at least one error, 2 and 3 as for the other
 commands. `--strict` (or `[lint] strict = true`) turns every warning into an error. `--json` prints
-one object: `strict`, `errors`, `warnings` and `findings[]`, each with `rule`, `severity`
-(`error` or `warning`), `message`, `path` (repository-relative), `line` (1-based) and, only for a
+one object: `strict`, `errors`, `warnings`, `infos` and `findings[]`, each with `rule`, `severity`
+(`error`, `warning` or `info`; `info` is a review hint, see S8), `message`, `path` (repository-relative), `line` (1-based) and, only for a
 finding in a virtual document, `origin` (`file`, `line`, `entity`: where that line was rendered from in
 the structured source). Human output is one `path:line: error[R1] message` line per finding; in a virtual
 document it is `path:line (source.jsonc:1320 krn-002): error[R1] message`.
@@ -63,6 +64,16 @@ The list items directly after the opener that start with `Verify:`, `Boundary:`,
 requirement (`RequirementRef.attributes` on its claims) and are not extracted as claims. Other list
 items under a requirement are ordinary prose and fall under R7. A requirement with `Status: retired`
 is only checked by R8.
+
+The lint takes only a bold ID opening a paragraph or list item as a requirement. A requirement given
+by a heading (`## PSS-003`, see [requirements.md](requirements.md#in-the-specification)) is not one to
+this lint: its statement is read as prose, so R7 reports its `shall`/`must` words. `concordance scan`
+does treat heading IDs as requirements.
+
+Identifiers: R8 accepts exactly `PREFIX-NNN` (an upper-case prefix, a dash, three digits). `concordance
+scan` accepts what [requirements.md](requirements.md#in-the-specification) describes: one to four digits
+and a dotted sub-number (`P-1`, `LANG-006.3`). The two disagree, so `lint` reports as R8 the IDs that
+`scan` accepts. Concordance's own specification uses three digits throughout.
 
 ## Rules
 
@@ -204,4 +215,6 @@ a table is a case added, with no change to the requirement.
   `rule = bypasses_boundary`. Calls are followed through test scaffolding (tests, `cfg(test)` items,
   anything under `tests/`) so a helper that drives the public API counts as the proof. A proof with
   no resolved call at all (a scenario that runs the command as a process) is not reported.
-  Resolution is syntactic: calls through trait objects and closures are not followed.
+  Resolution is syntactic: calls through trait objects and closures are not followed, and a method call
+  matched by name alone (`x.name()` where the receiver's type is not known, `Resolution::NameOnly` in the
+  graph) does not count as reaching that symbol.

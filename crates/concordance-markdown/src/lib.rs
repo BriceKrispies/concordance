@@ -62,8 +62,8 @@ pub fn index_document_for(
 }
 
 /// What a caller that generated the Markdown knows about some of its blocks, keyed by
-/// the 1-based line a paragraph, list item or table row starts on. Used by readers of
-/// structured specifications (Exegra) whose entities carry identity the text does not.
+/// the 1-based line a paragraph, list item or table row starts on. Nothing in the workspace supplies
+/// them: `index_document_for` passes `Hints::default()`, so the hint branches of the indexer are never taken.
 #[derive(Clone, Debug, Default)]
 pub struct Hints {
     pub blocks: HashMap<u32, BlockHint>,
@@ -81,7 +81,7 @@ pub struct BlockHint {
     pub authority: Option<Authority>,
 }
 
-/// [`index_document`] with block hints and an authority decided by the caller.
+/// Block hints and an authority decided by the caller. No caller in the workspace uses it.
 pub fn index_document_with(
     path: &RepoPath,
     text: &str,

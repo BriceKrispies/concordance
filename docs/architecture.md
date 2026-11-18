@@ -22,13 +22,13 @@ concordance-storage     SQLite: versioned schema, one transaction per change bat
 concordance-events      bounded ring + cursor subscriptions (replay, lag -> resync)
 concordance-engine      the incremental engine: discovery, parsing, change batches, invalidation, scheduling, watching
 concordance-server      axum: /api/v1 JSON, SSE, embedded web/ assets, Host guard
-concordance-cli         `concordance` binary: serve, scan, watch, report
+concordance-lint        the requirement-format lint (`concordance lint`, rules R0-R8 and the semantic rules S1-S9 over structured sources)
+concordance-cli         `concordance` binary: serve, scan, watch, report, lint
 tests/                  end-to-end tests over fixtures/
 ```
 
-The prompt suggested a crate named `concordance-incremental`. Its role is filled by
-`concordance-engine`, because the incremental dependency engine *is* the engine: it is the
-single writer of the model.
+There is no `concordance-incremental` crate. Its role is filled by `concordance-engine`, because the
+incremental dependency engine *is* the engine: it is the single writer of the model.
 
 Source languages are plugins (`core::lang::LanguagePlugin`): each owns file extensions, Markdown
 fence tags, package discovery, per-file indexing into the language-neutral `SourceIndex`, and the

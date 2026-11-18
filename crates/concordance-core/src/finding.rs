@@ -1,6 +1,6 @@
 //! Findings: the reconciliation result a human acts on.
 //!
-//! Status rules (enforced by `concordance-reconcile`, documented in `docs/findings.md`):
+//! Status rules (enforced by `concordance-reconcile`, documented in `docs/specifications/reconciliation.md`):
 //! * `violated` requires valid contradicting evidence of strength >= Strong, or a
 //!   semantic contradiction that survived an adversarial challenge with validated
 //!   citations. Its `category` says which.

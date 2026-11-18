@@ -32,4 +32,5 @@ Things deliberately done without a crate:
 - **JSONC.** `concordance-exegra` blanks out comments and trailing commas (keeping every byte on its
   line) and lets `serde_json` parse the rest; a small walk over the cleaned text finds the line of each
   entity. No JSONC crate is needed.
-- **Levenshtein and Jaccard.** Both are a few lines.
+- **Jaccard similarity.** Claim carry-over (`concordance-engine`) and the near-duplicate lint rules (R6, S8)
+  each have a few-line implementation. No edit-distance function is used.

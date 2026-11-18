@@ -25,9 +25,9 @@ The domain model in `concordance_core` is the contract every subsystem speaks.
 Markdown is parsed with a real parser; Rust with `syn`.
 
 ```rust
-pub fn index_document(path: &RepoPath, text: &str, configured: Option<AuthorityAssessment>) -> DocumentIndex
+pub fn index_document(path: &RepoPath, text: &str, configured: Option<AuthorityAssessment>, languages: &Languages) -> DocumentIndex
 pub fn index_source(path: &RepoPath, text: &str, ws: &WorkspaceInfo) -> SourceIndex
-pub fn normalize_signature(text: &str) -> Option<(String, String)>
+pub fn normalize_signature(&self, text: &str) -> Option<(String, String)>
 ```
 
 - `concordance_rust::index_source()` must report a parse failure in `SourceFile::parse_error` instead of failing.
