@@ -393,8 +393,11 @@ impl Engine {
             let (r, _) = shared.read(|m| {
                 let mut k: HashMap<RepoPath, Known> = HashMap::new();
                 for d in m.documents.values() {
-                    let configured = (d.authority.source == AuthoritySource::Configured)
-                        .then(|| d.authority.clone());
+                    let configured = matches!(
+                        d.authority.source,
+                        AuthoritySource::Configured | AuthoritySource::SpecFormat
+                    )
+                    .then(|| d.authority.clone());
                     k.insert(
                         d.path.clone(),
                         Known {
@@ -804,7 +807,9 @@ fn parse_one(
     match t.kind {
         FileKind::Exegra => Err("a structured source is not indexed as a document".to_string()),
         FileKind::Markdown => {
-            let configured = rules.assess(&t.rel);
+            // A structured source is a specification by its format: its rendered documents are
+            // normative unless `[authority]` says otherwise, whatever their RFC keyword count.
+            let configured = rules.assess_target(&t.rel, t.rendered.is_some());
             if !force
                 && known.is_some_and(|k| k.hash == hash && k.configured_authority == configured)
             {

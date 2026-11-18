@@ -156,7 +156,7 @@ fn is_markdown(path: &str) -> bool {
 /// Whether a Markdown text has a heading matching `section` by text or anchor slug.
 fn has_heading(text: &str, section: &str) -> bool {
     let want = section.trim().to_lowercase();
-    let want_slug = crate::text::slug(&want);
+    let want_slug = concordance_core::anchor::slugify(&want);
     let mut fence = false;
     for line in text.lines() {
         let t = line.trim_start();
@@ -173,7 +173,7 @@ fn has_heading(text: &str, section: &str) -> bool {
             .trim_end_matches('#')
             .trim();
         let h = h.to_lowercase();
-        if h == want || crate::text::slug(&h) == want_slug || h.contains(&want) {
+        if h == want || concordance_core::anchor::slugify(&h) == want_slug || h.contains(&want) {
             return true;
         }
     }

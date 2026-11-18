@@ -1,7 +1,7 @@
 //! Conversion from `proc_macro2` spans to contract [`SourceRange`]s.
 
 use concordance_core::{RepoPath, SourceRange};
-use proc_macro2::{LineColumn, Span, TokenStream};
+use proc_macro2::{LineColumn, TokenStream};
 use quote::ToTokens;
 
 pub(crate) struct Locator {
@@ -23,11 +23,6 @@ impl Locator {
             end_line: end.line.max(1) as u32,
             end_col: (end.column as u32).max(1),
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn of_span(&self, s: Span) -> SourceRange {
-        self.range(s.start(), s.end())
     }
 
     /// Range from the first token's start to the last token's end.

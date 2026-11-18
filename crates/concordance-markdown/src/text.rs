@@ -1,20 +1,5 @@
 //! Text helpers: slugs, word tokenization, sentence splitting, percent-decoding.
 
-/// GitHub-style heading anchor: lowercase, spaces -> `-`, drop punctuation except `-`/`_`.
-pub fn slugify(heading: &str) -> String {
-    let mut out = String::new();
-    for c in heading.trim().chars() {
-        if c.is_alphanumeric() {
-            out.extend(c.to_lowercase());
-        } else if c.is_whitespace() || c == '-' {
-            out.push('-');
-        } else if c == '_' {
-            out.push('_');
-        }
-    }
-    out
-}
-
 /// Lowercase words (split on non-alphanumerics).
 pub fn words_lower(s: &str) -> Vec<String> {
     s.split(|c: char| !c.is_alphanumeric())

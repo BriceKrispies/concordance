@@ -303,11 +303,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// The configured repository a citation alias refers to.
-    pub fn repo_for_alias(&self, alias: &str) -> Option<&RepoConfig> {
-        self.repos.iter().find(|r| r.matches(alias))
-    }
-
     /// Merge file + overrides. `base_dir` resolves a relative `repo` from the file
     /// (the config file's directory) or from the CLI (the current directory).
     /// `default_state_base` is the per-user data directory (e.g. `%LOCALAPPDATA%\concordance`).

@@ -26,7 +26,7 @@ use concordance_core::finding::{
     EvidenceQuality, Finding, FindingCategory, FindingStatus, FindingSubject, Lifecycle, Proposal,
     ResolutionAction, Severity,
 };
-use concordance_core::graph::{Edge, EdgeKind, NodeRef, Resolution};
+use concordance_core::graph::{Edge, EdgeKind, NodeRef};
 use concordance_core::{SourceRange, SymbolId};
 use concordance_graph::Model;
 use std::collections::BTreeSet;
@@ -983,16 +983,4 @@ pub fn conflict_findings(model: &Model, ctx: &BatchContext) -> Vec<(Finding, Evi
         }
     }
     out
-}
-
-/// Resolution label helper for UI/explanations.
-pub fn resolution_label(r: &Resolution) -> &'static str {
-    match r {
-        Resolution::Exact => "exact",
-        Resolution::UniqueSuffix => "unique suffix",
-        Resolution::Ambiguous { .. } => "ambiguous",
-        Resolution::Lexical => "lexical",
-        Resolution::NameOnly => "name only",
-        Resolution::Unresolved => "unresolved",
-    }
 }

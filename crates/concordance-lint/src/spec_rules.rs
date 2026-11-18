@@ -20,9 +20,10 @@
 
 use crate::{LintFinding, Severity};
 use concordance_core::config::RuleFile;
+use concordance_core::similarity::jaccard;
 use concordance_exegra::{parse_source, Source};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 struct Req {
     id: String,
@@ -1002,31 +1003,10 @@ fn stem(w: &str) -> String {
     w.to_string()
 }
 
-fn jaccard(a: &[u32], b: &[u32]) -> f64 {
-    let (mut i, mut j, mut inter) = (0, 0, 0);
-    while i < a.len() && j < b.len() {
-        match a[i].cmp(&b[j]) {
-            std::cmp::Ordering::Less => i += 1,
-            std::cmp::Ordering::Greater => j += 1,
-            std::cmp::Ordering::Equal => {
-                inter += 1;
-                i += 1;
-                j += 1;
-            }
-        }
-    }
-    let union = a.len() + b.len() - inter;
-    if union == 0 {
-        0.0
-    } else {
-        inter as f64 / union as f64
-    }
-}
-
 /// Two statements that differ by one substituted word, or by different numbers, are parallel
 /// rules (revenue / retention, milestone 1 / milestone 8), not one rule said twice.
-fn is_parallel(a: &[u32], b: &[u32], names: &[String]) -> bool {
-    let only = |x: &[u32], y: &[u32]| -> Vec<u32> {
+fn is_parallel(a: &BTreeSet<u32>, b: &BTreeSet<u32>, names: &[String]) -> bool {
+    let only = |x: &BTreeSet<u32>, y: &BTreeSet<u32>| -> Vec<u32> {
         x.iter().copied().filter(|t| !y.contains(t)).collect()
     };
     let (ua, ub) = (only(a, b), only(b, a));
@@ -1041,9 +1021,9 @@ fn s8_said_once(cx: &mut Ctx<'_>, r: &Rs) {
     let threshold = r.f.threshold_percent.unwrap_or(75).min(100) as f64 / 100.0;
     let min_tokens = r.f.min_tokens.unwrap_or(6) as usize;
     let mut vocab: HashMap<String, u32> = HashMap::new();
-    let mut sets: Vec<(usize, Vec<u32>)> = Vec::new(); // (req index, sorted token ids)
-                                                       // R6's own measure, so a pair it already reports is not reported again.
-    let mut r6: HashMap<usize, Vec<u32>> = HashMap::new();
+    let mut sets: Vec<(usize, BTreeSet<u32>)> = Vec::new(); // (req index, token ids)
+                                                            // R6's own measure, so a pair it already reports is not reported again.
+    let mut r6: HashMap<usize, BTreeSet<u32>> = HashMap::new();
     for (i, q) in cx.reqs.iter().enumerate().filter(|(_, q)| q.active) {
         let mut ids: Vec<u32> = Vec::new();
         let mut ids6: Vec<u32> = Vec::new();
@@ -1067,8 +1047,8 @@ fn s8_said_once(cx: &mut Ctx<'_>, r: &Rs) {
         ids6.sort_unstable();
         ids6.dedup();
         if ids.len() >= min_tokens {
-            sets.push((i, ids));
-            r6.insert(i, ids6);
+            sets.push((i, ids.into_iter().collect()));
+            r6.insert(i, ids6.into_iter().collect());
         }
     }
     let mut names = vec![String::new(); vocab.len()];

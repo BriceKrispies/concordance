@@ -13,6 +13,7 @@ use concordance_core::event::{ClaimSummary, Event, EvidenceSummary, SymbolSummar
 use concordance_core::evidence::{Evidence, MethodKind, StructuralCheck, Validity};
 use concordance_core::finding::{Finding, FindingSubject};
 use concordance_core::graph::{Edge, EdgeKind, NodeRef};
+use concordance_core::similarity;
 use concordance_core::{
     ClaimId, DocumentId, EdgeId, EvidenceId, FileId, FindingId, RepoPath, SectionId, SymbolId,
 };
@@ -193,18 +194,11 @@ fn symbol_summary(s: &Symbol) -> SymbolSummary {
     }
 }
 
-fn tokens(s: &str) -> HashSet<String> {
+fn tokens(s: &str) -> BTreeSet<String> {
     s.split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|w| w.len() > 1)
         .map(str::to_lowercase)
         .collect()
-}
-
-fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
-    if a.is_empty() && b.is_empty() {
-        return 1.0;
-    }
-    a.intersection(b).count() as f32 / a.union(b).count() as f32
 }
 
 /// Carry claim identities across edits: a new claim whose content-derived id is new
@@ -213,7 +207,7 @@ fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
 pub fn carry_claim_ids(old: &[Claim], new: &mut [Claim]) {
     let new_ids: HashSet<ClaimId> = new.iter().map(|c| c.id.clone()).collect();
     let old_ids: HashSet<ClaimId> = old.iter().map(|c| c.id.clone()).collect();
-    let candidates: Vec<(&Claim, HashSet<String>)> = old
+    let candidates: Vec<(&Claim, BTreeSet<String>)> = old
         .iter()
         .filter(|c| !new_ids.contains(&c.id))
         .map(|c| (c, tokens(&c.text)))
@@ -221,10 +215,10 @@ pub fn carry_claim_ids(old: &[Claim], new: &mut [Claim]) {
     let mut taken: HashSet<ClaimId> = HashSet::new();
     for n in new.iter_mut().filter(|n| !old_ids.contains(&n.id)) {
         let nt = tokens(&n.text);
-        let mut scored: Vec<(f32, &Claim)> = candidates
+        let mut scored: Vec<(f64, &Claim)> = candidates
             .iter()
             .filter(|(o, _)| !taken.contains(&o.id) && o.kind == n.kind)
-            .map(|(o, ot)| (jaccard(&nt, ot), *o))
+            .map(|(o, ot)| (similarity::jaccard(&nt, ot), *o))
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some(&(best, o)) = scored.first() {

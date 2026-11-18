@@ -7,9 +7,7 @@ use concordance_core::doc::{Claim, Document, ProseReference, Reference, Referenc
 use concordance_core::evidence::Evidence;
 use concordance_core::finding::{Finding, FindingSubject};
 use concordance_core::graph::{Edge, NodeRef};
-use concordance_core::{
-    ClaimId, DocumentId, EdgeId, EvidenceId, FileId, FindingId, RepoPath, SymbolId,
-};
+use concordance_core::{ClaimId, DocumentId, EdgeId, EvidenceId, FileId, RepoPath, SymbolId};
 use std::collections::{BTreeSet, HashMap};
 use std::hash::Hash;
 
@@ -313,9 +311,5 @@ impl Model {
         if let FindingSubject::Undocumented { symbol, .. } = &f.subject {
             del(&mut self.idx.findings_by_symbol, symbol, &f.id);
         }
-    }
-
-    pub fn finding_ids(&self) -> impl Iterator<Item = &FindingId> {
-        self.findings.keys()
     }
 }

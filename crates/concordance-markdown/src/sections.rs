@@ -1,6 +1,7 @@
 //! Section roles and anchor generation.
 
-use crate::text::{has_phrase, has_word, slugify, words_lower};
+use crate::text::{has_phrase, has_word, words_lower};
+use concordance_core::anchor::slugify;
 use concordance_core::doc::SectionRole;
 use std::collections::{HashMap, HashSet};
 

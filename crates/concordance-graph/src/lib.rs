@@ -12,6 +12,11 @@ mod resolve;
 pub use neighborhood::{Neighborhood, NeighborhoodEdge, NeighborhoodNode};
 pub use resolve::{lexical_candidates, Resolved, STD_ROOTS};
 
+/// Bump when the derivation of persisted state changes for identical input: the edges, evidence
+/// and findings that the engine's `apply` module and this crate produce. The engine folds it into
+/// the state version, so a bump re-derives the persisted state on the next start.
+pub const DERIVATION_VERSION: &str = "derive-1";
+
 use concordance_core::code::{Import, SourceFile, Symbol, WorkspaceInfo};
 use concordance_core::doc::{Claim, Document, ProseReference, Section};
 use concordance_core::evidence::Evidence;

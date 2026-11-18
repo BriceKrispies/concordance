@@ -1,12 +1,14 @@
 //! The lint rules R1..R8.
 
-use crate::text::{find_limit, find_word, mask_code, tokens};
+use crate::text::{find_limit, find_no_ever, find_word, mask_code, tokens};
 use crate::whitepaper::{parse_index_table, parse_whitepaper, WhitePaperId};
 use crate::{LintFinding, LintInput, Severity, SpecFile};
+use concordance_core::doc::is_requirement_id;
 use concordance_core::doc::{ReferenceStrength, ReferenceTarget};
+use concordance_core::similarity::jaccard;
 use concordance_core::RepoPath;
 use concordance_graph::{Model, Resolved};
-use concordance_markdown::{classify_code_span, is_strict_id, structure, RequirementBlock};
+use concordance_markdown::{classify_code_span, structure, RequirementBlock};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Banned in a statement: they are not outcomes (spec-format.md, rule 2).
@@ -451,11 +453,24 @@ fn r4_provable(r: &Req, input: &LintInput<'_>, sink: &mut Sink) {
     let s = statement_masked(r);
     if matches!(method.as_str(), "example" | "scenario") {
         let mut hit: Option<(usize, &str)> = None;
-        for w in ["never", "always", "for every", "for all", "for each"] {
+        for w in [
+            "never",
+            "always",
+            "whenever",
+            "for every",
+            "for all",
+            "for any",
+            "for each",
+        ] {
             if let Some(&off) = find_word(&s, w).first() {
                 if hit.is_none_or(|h| off < h.0) {
                     hit = Some((off, w));
                 }
+            }
+        }
+        if let Some(off) = find_no_ever(&s) {
+            if hit.is_none_or(|h| off < h.0) {
+                hit = Some((off, "no ... ever"));
             }
         }
         if let Some((_, w)) = hit {
@@ -736,9 +751,7 @@ fn r6_duplicates(reqs: &[Req], sink: &mut Sink) {
         let Some(b) = &sets[j] else { continue };
         for i in 0..j {
             let Some(a) = &sets[i] else { continue };
-            let inter = a.intersection(b).count();
-            let union = a.union(b).count();
-            if union > 0 && inter as f64 / union as f64 >= 0.8 {
+            if jaccard(a, b) >= 0.8 {
                 sink.warn(
                     "R6",
                     &reqs[j].file.path,
@@ -787,13 +800,13 @@ fn r8_ids<'a>(
 ) {
     let path = &r.file.path;
     let id = r.block.id.as_str();
-    let well_formed = is_strict_id(id);
+    let well_formed = is_requirement_id(id);
     if !well_formed {
         sink.err(
             "R8",
             path,
             r.block.line,
-            format!("malformed ID `{id}`: use an upper-case prefix, a dash and three digits (`CLI-004`)"),
+            format!("malformed ID `{id}`: use an upper-case prefix, a dash and a number (`CLI-004`, `LANG-006.3`)"),
         );
     }
     match first_seen.get(id) {
@@ -981,5 +994,123 @@ mod tests {
         let req = r4_cases_of("conformance", "", Some(&dir));
         assert!(req[0].contains("needs a `Cases:`"), "{req:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every finding of the one-requirement spec `text` (a bold-ID requirement, no white paper).
+    fn findings_of(text: &str) -> Vec<LintFinding> {
+        let specs = [SpecFile {
+            path: "docs/spec/cli.md".into(),
+            text: text.into(),
+        }];
+        let settings = settings(false);
+        let input = LintInput {
+            specs: &specs,
+            index: None,
+            whitepaper: ("docs/whitepaper.md", None),
+            model: None,
+            settings: &settings,
+            repo_root: None,
+            virtual_docs: None,
+        };
+        run(&input)
+    }
+
+    /// The R4 messages for a requirement with the given statement and `Verify:` method.
+    fn r4_for(statement: &str, verify: &str) -> Vec<String> {
+        findings_of(&format!(
+            "**CLI-005** {statement}\n- Verify: {verify}\n- Traces: G-1\n- Boundary: B-1 `tool build`\n"
+        ))
+        .into_iter()
+        .filter(|f| f.rule == "R4")
+        .map(|f| f.message)
+        .collect()
+    }
+
+    #[test]
+    fn a_missing_milestone_is_an_error_when_required() {
+        let f = r4(true, "");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert!(f[0].1.contains("missing `Milestone:`"), "{f:?}");
+        // Without the option the attribute is not required.
+        assert!(r4(false, "").is_empty());
+    }
+
+    #[test]
+    fn one_id_grammar_for_lint_and_scan() {
+        // Strata's PREFIX-NNN, Concordance's own IDs, a short number and a dotted sub-number are
+        // all valid; a lower-case prefix is malformed.
+        for id in ["KRN-007", "LINT-001", "P-1", "LANG-006.3"] {
+            let f = findings_of(&format!("**{id}** `tool build` SHALL exit with status 2.\n- Verify: example\n- Traces: G-1\n- Boundary: B-1 `tool build`\n"));
+            assert!(
+                !f.iter().any(|f| f.rule == "R8"),
+                "{id} must be a valid ID: {f:?}"
+            );
+        }
+        let bad = findings_of("**cli-004** `tool build` SHALL exit with status 2.\n- Verify: example\n- Traces: G-1\n- Boundary: B-1 `tool build`\n");
+        assert!(
+            bad.iter()
+                .any(|f| f.rule == "R8" && f.message.contains("malformed")),
+            "{bad:?}"
+        );
+    }
+
+    #[test]
+    fn r4_reads_universal_quantifiers_and_number_words() {
+        // Universal claims cannot be shown by an example.
+        assert!(r4_for(
+            "whenever the manifest is missing, `tool build` SHALL exit with status 2.",
+            "example"
+        )
+        .iter()
+        .any(|m| m.contains("\"whenever\"")));
+        assert!(r4_for(
+            "for any manifest, `tool build` SHALL exit with status 2.",
+            "example"
+        )
+        .iter()
+        .any(|m| m.contains("\"for any\"")));
+        assert!(r4_for("no build ever writes a partial file.", "scenario")
+            .iter()
+            .any(|m| m.contains("no ... ever")));
+        // Limits written as words need `budget`, as digits do.
+        assert!(r4_for(
+            "`tool build` SHALL finish within five milliseconds.",
+            "property"
+        )
+        .iter()
+        .any(|m| m.contains("needs `Verify: budget`")));
+        assert!(
+            r4_for("`tool build` SHALL retry at most three times.", "example")
+                .iter()
+                .any(|m| m.contains("needs `Verify: budget`"))
+        );
+        // Ordinary prose with the same words is not flagged.
+        assert!(r4_for(
+            "`tool build` SHALL report a second copy of each file.",
+            "example"
+        )
+        .is_empty());
+        assert!(r4_for(
+            "`tool build` SHALL retry while at least one source remains.",
+            "property"
+        )
+        .is_empty());
+        assert!(r4_for(
+            "for any manifest, `tool build` SHALL exit with status 2.",
+            "property"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn a_requirement_after_an_attribute_bullet_is_not_swallowed() {
+        let text = "**CLI-005** `tool build` SHALL exit with status 2.\n- Verify: example\n**CLI-006** `tool build` SHALL write nothing.\n- Verify: example\n";
+        let s = concordance_markdown::structure(text);
+        let ids: Vec<&str> = s.requirements.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["CLI-005", "CLI-006"], "{s:?}");
+        let first = s.requirements[0]
+            .attribute("Verify")
+            .map(|a| a.value.clone());
+        assert_eq!(first.as_deref(), Some("example"));
     }
 }

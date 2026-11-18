@@ -242,6 +242,20 @@ impl AuthorityRules {
         self.whitepaper.as_ref() == Some(path)
     }
 
+    /// The authority of a document at `path`: the configured one, else, for a document rendered
+    /// from a structured source, the normative authority its format gives it (a structured source
+    /// is a specification whatever its RFC keyword count or path).
+    pub fn assess_target(&self, path: &RepoPath, rendered: bool) -> Option<AuthorityAssessment> {
+        self.assess(path).or_else(|| {
+            rendered.then(|| AuthorityAssessment {
+                level: Authority::Normative,
+                source: AuthoritySource::SpecFormat,
+                rationale: "rendered from a structured specification source (Exegra JSONC)"
+                    .to_string(),
+            })
+        })
+    }
+
     pub fn assess(&self, path: &RepoPath) -> Option<AuthorityAssessment> {
         for (level, set, globs) in &self.rules {
             let hits = set.matches(path.as_str());
@@ -254,5 +268,39 @@ impl AuthorityRules {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rules(descriptive: &str) -> AuthorityRules {
+        AuthorityRules {
+            rules: vec![(
+                Authority::Descriptive,
+                build_globs(&[descriptive.to_string()]),
+                vec![descriptive.to_string()],
+            )],
+            whitepaper: None,
+        }
+    }
+
+    #[test]
+    fn a_rendered_structured_source_is_normative_unless_configured() {
+        let path = RepoPath::from_relative_str("specifications/kernel.md").unwrap();
+        let unconfigured = rules("docs/guides/**");
+        let a = unconfigured.assess_target(&path, true).unwrap();
+        assert_eq!(a.level, Authority::Normative);
+        assert_eq!(a.source, AuthoritySource::SpecFormat);
+        // A Markdown file with no configuration and no keywords stays unassessed.
+        assert!(unconfigured.assess_target(&path, false).is_none());
+        // `[authority]` still decides.
+        let configured = RepoPath::from_relative_str("docs/guides/kernel.md").unwrap();
+        let c = rules("docs/guides/**")
+            .assess_target(&configured, true)
+            .unwrap();
+        assert_eq!(c.level, Authority::Descriptive);
+        assert_eq!(c.source, AuthoritySource::Configured);
     }
 }

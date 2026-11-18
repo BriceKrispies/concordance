@@ -20,9 +20,8 @@ mod text;
 #[cfg(test)]
 mod tests;
 
-use concordance_core::doc::{Authority, AuthorityAssessment, ClaimKind, DocumentIndex};
+use concordance_core::doc::{AuthorityAssessment, DocumentIndex};
 use concordance_core::lang::Languages;
-use std::collections::HashMap;
 
 /// Bump when extraction output changes for identical input (forces re-indexing).
 pub const EXTRACTOR_VERSION: &str = "md-11";
@@ -51,56 +50,18 @@ pub fn index_document_for(
     languages: &Languages,
     whitepaper: bool,
 ) -> DocumentIndex {
-    index::build(
-        path,
-        text,
-        configured,
-        languages,
-        &Hints::default(),
-        whitepaper,
-    )
-}
-
-/// What a caller that generated the Markdown knows about some of its blocks, keyed by
-/// the 1-based line a paragraph, list item or table row starts on. Nothing in the workspace supplies
-/// them: `index_document_for` passes `Hints::default()`, so the hint branches of the indexer are never taken.
-#[derive(Clone, Debug, Default)]
-pub struct Hints {
-    pub blocks: HashMap<u32, BlockHint>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct BlockHint {
-    /// The block defines this requirement ID, as a bold opener would.
-    pub requirement: Option<String>,
-    /// The block is one statement and always yields one claim, even without a modal verb.
-    pub whole_claim: bool,
-    /// Overrides the classified kind.
-    pub kind: Option<ClaimKind>,
-    /// Overrides the effective authority.
-    pub authority: Option<Authority>,
-}
-
-/// Block hints and an authority decided by the caller. No caller in the workspace uses it.
-pub fn index_document_with(
-    path: &RepoPath,
-    text: &str,
-    authority: AuthorityAssessment,
-    languages: &Languages,
-    hints: &Hints,
-) -> DocumentIndex {
-    index::build(path, text, Some(authority), languages, hints, false)
+    index::build(path, text, configured, languages, whitepaper)
 }
 
 pub use citations::{extract_citations, parse_citation, CitationMatch};
 
-/// GitHub-style heading anchor: lowercase, spaces -> `-`, drop punctuation except `-`/`_`.
+/// GitHub-style heading anchor (see [`concordance_core::anchor::slugify`]).
 pub fn slugify(heading: &str) -> String {
-    text::slugify(heading)
+    concordance_core::anchor::slugify(heading)
 }
 
 pub use requirements::{
-    is_strict_id, structure, AttributeItem, CodeSpan, LooseText, RequirementBlock, SpecStructure,
+    structure, AttributeItem, CodeSpan, LooseText, RequirementBlock, SpecStructure,
 };
 
 /// What an inline code span refers to, if it looks like a code reference (a symbol path,

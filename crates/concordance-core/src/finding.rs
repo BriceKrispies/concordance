@@ -177,7 +177,8 @@ pub enum FindingSubject {
         requirement: String,
     },
     /// A proof-rule breach (see `docs/spec-lint.md`): `multiple_proofs` (a requirement with more
-    /// than one declaring proof; no `symbol`) or `bypasses_boundary` (a proof that calls only
+    /// than one declaring proof; no `symbol`), `duplicate_id` (one requirement ID opened in more
+    /// than one document; no `symbol`) or `bypasses_boundary` (a proof that calls only
     /// internals; `symbol` is the proof).
     ProofRule {
         requirement: String,

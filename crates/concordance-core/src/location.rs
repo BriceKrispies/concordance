@@ -134,9 +134,6 @@ impl SourceRange {
             end_col: 1,
         }
     }
-    pub fn contains_lines(&self, start: u32, end: u32) -> bool {
-        start <= end && start >= self.start_line && end <= self.end_line
-    }
 }
 
 impl fmt::Display for SourceRange {
