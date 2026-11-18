@@ -65,6 +65,9 @@ pub enum FindingCategory {
     StructuralContradiction,
     /// Semantic analysis suspects a behavioral contradiction (model-assessed, challenged).
     SuspectedSemanticContradiction,
+    /// Moderate structural evidence suggests a contradiction (an unresolved name, a clamp
+    /// beyond a bound) that a deterministic check cannot establish.
+    SuspectedStructuralContradiction,
     /// No evidence establishes compliance either way.
     MissingEvidence,
     /// Documentation is unclear, vague or self-contradictory.
@@ -77,6 +80,9 @@ pub enum FindingCategory {
     Supported,
     /// A test that declares it verifies this requirement failed in the recorded run.
     TestFailure,
+    /// Cited code changed between the revision a citation names and the configured
+    /// `compare` revision. The citation is still true at its own revision.
+    CitationDrift,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

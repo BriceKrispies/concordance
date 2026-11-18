@@ -20,6 +20,7 @@ Status is decided in one place, `derive::claim_finding()`.
 - A claim must not be reported as `violated` unless valid contradicting evidence of strength `Strong` or higher exists, or a semantic contradiction survived an adversarial challenge.
 - A behavioral claim must never be reported as `verified` by structural analysis alone.
 - When semantic evidence has been invalidated and not re-established, the claim's finding MUST be `stale`.
+- Citation drift (cited text that changed after the cited revision) must never be reported as `violated`; it is `stale` with category `citation_drift`.
 - Findings must keep their identity across scans: `FindingSubject::finding_id()` derives the id only from what the finding is about.
 - Resolved findings MUST be retained with `Lifecycle::Resolved` rather than deleted.
 
@@ -48,4 +49,4 @@ pub fn carry_claim_ids(old: &[Claim], new: &mut [Claim])
 ## Example
 
 A specification stating "the volume must never exceed 100" against code that calls
-`v.min(150)` produces a suspected semantic contradiction, not a proven one.
+`v.min(150)` produces a suspected contradiction, not a proven one.

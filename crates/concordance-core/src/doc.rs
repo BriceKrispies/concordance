@@ -31,6 +31,8 @@ pub enum AuthoritySource {
     PathConvention,
     /// Section heading role (Example, Background, History, ...).
     SectionRole,
+    /// The file format declares itself the specification (an Exegra JSONC file).
+    SpecFormat,
     /// Nothing established it.
     Default,
 }
@@ -280,7 +282,8 @@ pub enum RequirementForm {
 
 /// Whether `s` is a requirement ID: an upper-case prefix, optional upper-case/digit
 /// segments, then a number with an optional dotted sub-number: `PSS-003`, `LANG-006.3`,
-/// `UI-12`, `WEB-SEC-004`. Issue-tracker keys (`PROJ-2147`) also match the shape, which
+/// `UI-12`, `WEB-SEC-004`, `B-5`. The number may carry a one- or two-letter tag
+/// (`PII-T1`, `AI-R3`). Issue-tracker keys (`PROJ-2147`) also match the shape, which
 /// is why IDs are only recognized where they are *defined* (bold paragraph opener or
 /// heading) and where a test *declares* `Verifies:`.
 pub fn is_requirement_id(s: &str) -> bool {
@@ -294,11 +297,15 @@ pub fn is_requirement_id(s: &str) -> bool {
         None => (last, None),
     };
     let digits = |x: &str| !x.is_empty() && x.len() <= 4 && x.bytes().all(|b| b.is_ascii_digit());
-    if !digits(num) || sub.is_some_and(|b| !digits(b)) {
+    let tag = num.len()
+        - num
+            .trim_start_matches(|c: char| c.is_ascii_uppercase())
+            .len();
+    if tag > 2 || !digits(&num[tag..]) || sub.is_some_and(|b| !digits(b)) {
         return false;
     }
     let first = parts[0];
-    first.len() >= 2
+    !first.is_empty()
         && first.as_bytes()[0].is_ascii_uppercase()
         && parts.iter().all(|p| {
             !p.is_empty()
@@ -342,6 +349,36 @@ pub enum ReferenceTarget {
     OutsideRepo { text: String },
     /// http(s)/mailto etc. Not checked.
     External { url: String },
+    /// `[ALIAS:path:lines]`: a file or directory in another git repository, at the
+    /// revision configured for `alias` under `[repos]`. Aliases with no configured
+    /// repository are not checked.
+    Citation {
+        /// As written (`APP`, `app`); mapped to a configured repository at reconcile time.
+        alias: String,
+        /// Repository-relative path, `/`-separated, as written.
+        path: String,
+        /// Cited line ranges, in order; empty for a whole file or directory.
+        lines: Vec<LineSpan>,
+        /// `"Section"` or `#anchor`: a heading in the cited Markdown file.
+        section: Option<String>,
+    },
+}
+
+/// An inclusive, 1-based line range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct LineSpan {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl std::fmt::Display for LineSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.start == self.end {
+            write!(f, "{}", self.start)
+        } else {
+            write!(f, "{}-{}", self.start, self.end)
+        }
+    }
 }
 
 /// How sure the extractor is that a code span is meant as a code reference.

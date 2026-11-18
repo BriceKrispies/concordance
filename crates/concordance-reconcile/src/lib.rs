@@ -10,6 +10,7 @@
 //! `concordance-semantic` results and consumed by [`derive`]
 //! like any other evidence.
 
+pub mod citation;
 pub mod derive;
 pub mod gaps;
 pub mod lifecycle;
@@ -23,7 +24,7 @@ pub mod verification;
 use concordance_core::{RepoPath, Revision, Timestamp};
 
 /// Bump when reconciliation rules change, so persisted findings are re-derived.
-pub const RULES_VERSION: &str = "rules-9";
+pub const RULES_VERSION: &str = "rules-10";
 
 /// Filesystem existence probe for references that point outside the indexed roots.
 /// Implementations must only answer for paths inside the repository.
@@ -32,6 +33,10 @@ pub trait FsProbe {
     /// 1-based line of the first line in `path` that satisfies `pred`, if readable.
     fn find_line(&self, path: &RepoPath, pred: &dyn Fn(&str) -> bool) -> Option<u32> {
         let _ = (path, pred);
+        None
+    }
+    /// The configured cited repositories, if any (`[repos]`).
+    fn cited_repos(&self) -> Option<&dyn citation::CitedRepos> {
         None
     }
 }

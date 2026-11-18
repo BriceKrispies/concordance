@@ -15,6 +15,7 @@
 
 mod apply;
 mod discover;
+pub mod git;
 mod scan;
 mod semantic;
 pub mod source;
@@ -33,6 +34,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::{mpsc, oneshot, watch as tokio_watch};
 
+pub use concordance_reconcile::citation;
 pub use concordance_storage::{FindingTransition, RevisionRecord};
 
 /// Observable engine state for `/status` and headless summaries.
@@ -84,6 +86,11 @@ pub struct Shared {
     pub bus: EventBus,
     pub store: Mutex<Store>,
     pub status: RwLock<EngineStatus>,
+    /// The `[repos]` that citations point into; `None` when none are configured.
+    pub cited: Option<Arc<git::GitRepos>>,
+    /// Extractor and rule versions plus the resolved `[repos]` revisions; persisted, and a
+    /// change forces re-derivation.
+    pub state_version: String,
 }
 
 impl Shared {
@@ -110,6 +117,7 @@ impl Shared {
 pub enum EngineError {
     Store(String),
     Io(String),
+    Config(String),
 }
 
 impl std::fmt::Display for EngineError {
@@ -117,6 +125,7 @@ impl std::fmt::Display for EngineError {
         match self {
             EngineError::Store(e) => write!(f, "state store: {e}"),
             EngineError::Io(e) => write!(f, "io: {e}"),
+            EngineError::Config(e) => write!(f, "configuration: {e}"),
         }
     }
 }
@@ -260,9 +269,21 @@ pub async fn start(
     let snapshot = store
         .load()
         .map_err(|e| EngineError::Store(e.to_string()))?;
+    let (cited, repo_warnings) = {
+        let config = config.clone();
+        tokio::task::spawn_blocking(move || git::GitRepos::open(&config))
+            .await
+            .map_err(|e| EngineError::Io(e.to_string()))?
+            .map_err(EngineError::Config)?
+    };
+    let state_version = if cited.is_empty() {
+        extractor_version()
+    } else {
+        format!("{}+repos:{}", extractor_version(), cited.fingerprint())
+    };
+    let cited = (!cited.is_empty()).then(|| Arc::new(cited));
     let restored = snapshot.revision.0 > 0;
-    let reindex =
-        restored && snapshot.extractor_version.as_deref() != Some(extractor_version().as_str());
+    let reindex = restored && snapshot.extractor_version.as_deref() != Some(state_version.as_str());
     // Events published but not yet committed before a crash are gone; jump well past any
     // such window so no sequence number is ever reused. Old cursors then resync.
     let resume = if snapshot.last_seq > 0 {
@@ -287,6 +308,8 @@ pub async fn start(
         bus,
         store: Mutex::new(store),
         status: RwLock::new(status),
+        cited,
+        state_version,
     });
     let (cmd_tx, cmd_rx) = mpsc::channel(256);
     let (shutdown_tx, shutdown_rx) = tokio_watch::channel(false);
@@ -314,9 +337,12 @@ pub async fn start(
     let watch_enabled = options.watch;
     let task = tokio::spawn(async move {
         engine.semantic.probe().await;
+        for message in repo_warnings {
+            engine.publish_now(Event::SystemWarning { message });
+        }
         if reindex {
             engine.publish_now(Event::SystemWarning {
-                message: "extractors changed since the last run; re-indexing every file".into(),
+                message: "extractors or cited revisions changed since the last run; re-indexing every file".into(),
             });
         }
         engine.scan(reindex, reason).await;

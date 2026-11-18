@@ -49,6 +49,7 @@ pub fn read_doc_text(model: &Model, root: &Path, path: &RepoPath) -> std::io::Re
 pub struct RepoFs {
     pub root: PathBuf,
     pub virtuals: BTreeMap<RepoPath, Arc<VirtualDoc>>,
+    pub cited: Option<std::sync::Arc<crate::git::GitRepos>>,
 }
 
 impl FsProbe for RepoFs {
@@ -62,6 +63,12 @@ impl FsProbe for RepoFs {
             None => read_text(&self.root, path).ok()?,
         };
         text.lines().position(pred).map(|i| i as u32 + 1)
+    }
+
+    fn cited_repos(&self) -> Option<&dyn concordance_reconcile::citation::CitedRepos> {
+        self.cited
+            .as_deref()
+            .map(|c| c as &dyn concordance_reconcile::citation::CitedRepos)
     }
 }
 
@@ -91,10 +98,14 @@ pub struct SourceExcerpt {
 /// Indexed content hash and node id for a repository path.
 fn indexed(model: &Model, path: &RepoPath) -> Option<(ContentHash, NodeRef, &'static str)> {
     if let Some(d) = model.document_by_path(path) {
+        let language = match path.extension() {
+            Some("json" | "jsonc") => "jsonc",
+            _ => "markdown",
+        };
         return Some((
             d.content_hash.clone(),
             NodeRef::Document(d.id.clone()),
-            "markdown",
+            language,
         ));
     }
     model

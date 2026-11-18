@@ -440,6 +440,7 @@ impl Engine {
         let fs = RepoFs {
             root: shared.config.repo_root.clone(),
             virtuals: virtual_docs,
+            cited: shared.cited.clone(),
         };
         if ws_changed {
             if let Some(w) = &workspace {
@@ -654,7 +655,7 @@ impl Engine {
             });
             envelopes.push(completed);
             delta.last_seq = shared.bus.last_seq();
-            delta.extractor_version = Some(crate::extractor_version());
+            delta.extractor_version = Some(shared.state_version.clone());
             delta.events = envelopes
                 .iter()
                 .filter(|e| e.event.is_state_change())

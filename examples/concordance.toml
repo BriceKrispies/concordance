@@ -36,3 +36,11 @@ max_turns = 20                           # explore: tool-use turns per analysis
 [server]
 host = "127.0.0.1"
 port = 4173
+
+# Citations of other repositories: `[APP:apps/api/src/catalog.ts:67-132]` in a spec is
+# checked against this repository at `cited` (see docs/cli.md, "Citations").
+[repos.APP]
+path = "../platform"     # a git repository; relative to this file
+cited = "27e5fb9"                        # the revision the citations were written against
+compare = "origin/main"                  # optional: report drift of the cited text against it
+spellings = ["app"]                      # optional: other spellings of the alias

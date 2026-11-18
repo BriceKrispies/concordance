@@ -23,6 +23,27 @@ pub struct Sentence<'a> {
     pub refs: &'a [Reference],
     /// Contents of the code spans, in order.
     pub codes: &'a [String],
+    /// Byte ranges of table column labels (`Header: `): structure, not statement.
+    pub labels: &'a [(usize, usize)],
+    /// Byte ranges of table cells that quote another source; excluded from vagueness checks.
+    pub quoted: &'a [(usize, usize)],
+    /// Another sentence of the same block precedes this one (a leading pronoun can
+    /// refer to it).
+    pub follows_sentence: bool,
+}
+
+/// Sorted union of byte ranges, as `mask_ranges` expects.
+fn union_ranges(sets: &[&[(usize, usize)]]) -> Vec<(usize, usize)> {
+    let mut all: Vec<(usize, usize)> = sets.iter().flat_map(|s| s.iter().copied()).collect();
+    all.sort();
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for (a, b) in all {
+        match out.last_mut() {
+            Some(last) if a <= last.1 => last.1 = last.1.max(b),
+            _ => out.push((a, b)),
+        }
+    }
+    out
 }
 
 const MUSTNOT_STRICT: &[&[&str]] = &[
@@ -46,7 +67,6 @@ const MUST: &[&[&str]] = &[
     &["shall"],
     &["is", "required", "to"],
     &["are", "required", "to"],
-    &["required"],
     &["has", "to"],
     &["have", "to"],
     &["needs", "to"],
@@ -145,7 +165,11 @@ pub fn modality(words: &[String]) -> Modality {
     if has_word(words, "never") {
         return Modality::MustNot;
     }
-    if any_phrase(words, MUST) {
+    // "required" is only an obligation when it is not negated ("not required").
+    let required = words.iter().enumerate().any(|(i, w)| {
+        w == "required" && !(i > 0 && matches!(words[i - 1].as_str(), "not" | "no" | "never"))
+    });
+    if any_phrase(words, MUST) || required {
         return Modality::Must;
     }
     if has_word(words, "should") || has_word(words, "recommended") {
@@ -166,12 +190,14 @@ pub fn classify(s: &Sentence<'_>) -> Option<Classified> {
     if s.text.trim_end().ends_with('?') {
         return None;
     }
-    let masked = mask_ranges(s.text, s.code_ranges);
+    // Column labels are structure: "Required: no" or "May do: ..." is not modality.
+    let unlabeled = mask_ranges(s.text, s.labels);
+    let masked = mask_ranges(s.text, &union_ranges(&[s.code_ranges, s.labels]));
     let words = words_lower(&masked);
     if words.len() < 3 {
         return None;
     }
-    let all_words = words_lower(s.text);
+    let all_words = words_lower(&unlabeled);
     let modality = modality(&words);
     let h = hay(&words);
     let strong_sym = s.refs.iter().any(|r| {
@@ -198,7 +224,7 @@ pub fn classify(s: &Sentence<'_>) -> Option<Classified> {
             ClaimKind::Behavior
         };
     } else {
-        constraint = constraint_form(s, &words, modality);
+        constraint = constraint_form(s, &unlabeled, &words, modality);
         let arch = [
             "depend",
             "depends",
@@ -258,8 +284,14 @@ pub fn classify(s: &Sentence<'_>) -> Option<Classified> {
         };
     }
 
-    let bounds = extract_bounds(s.text, modality);
-    let ambiguity = ambiguity_notes(s.text, &words, modality);
+    let bounds = extract_bounds(&unlabeled, modality);
+    let graded = mask_ranges(s.text, &union_ranges(&[s.code_ranges, s.labels, s.quoted]));
+    let ambiguity = ambiguity_notes(
+        unlabeled.trim_start(),
+        &words_lower(&graded),
+        modality,
+        s.follows_sentence,
+    );
     Some(Classified {
         modality,
         kind,
@@ -274,6 +306,8 @@ pub fn classify(s: &Sentence<'_>) -> Option<Classified> {
 struct Tok {
     raw: String,
     lower: String,
+    /// The written token ended a clause or a table cell (`1;`, `2,`, `x:`).
+    ends_clause: bool,
 }
 
 fn tokens(text: &str) -> Vec<Tok> {
@@ -288,7 +322,12 @@ fn tokens(text: &str) -> Vec<Tok> {
                 None
             } else {
                 let lower = raw.to_lowercase();
-                Some(Tok { raw, lower })
+                let ends_clause = t.ends_with([';', ',', ':', '.', ')']);
+                Some(Tok {
+                    raw,
+                    lower,
+                    ends_clause,
+                })
             }
         })
         .collect()
@@ -402,7 +441,7 @@ fn extract_bounds(text: &str, modality: Modality) -> Vec<Bound> {
         let mut unit = None;
         if pct {
             unit = Some("%".to_string());
-        } else if let Some(u) = toks.get(num_idx + 1) {
+        } else if let Some(u) = toks.get(num_idx + 1).filter(|_| !toks[num_idx].ends_clause) {
             let alpha = u.raw.chars().all(|c| c.is_alphabetic());
             if u.raw == "%" {
                 unit = Some("%".to_string());
@@ -437,7 +476,12 @@ fn extract_bounds(text: &str, modality: Modality) -> Vec<Bound> {
 
 // ---------------------------------------------------------------- ambiguity
 
-fn ambiguity_notes(text: &str, words: &[String], modality: Modality) -> Vec<AmbiguityNote> {
+fn ambiguity_notes(
+    text: &str,
+    words: &[String],
+    modality: Modality,
+    follows_sentence: bool,
+) -> Vec<AmbiguityNote> {
     let mut out = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     let mut push_vague = |term: String, out: &mut Vec<AmbiguityNote>| {
@@ -499,14 +543,18 @@ fn ambiguity_notes(text: &str, words: &[String], modality: Modality) -> Vec<Ambi
     let mut words = text.split_whitespace();
     let first = words.next().unwrap_or("");
     let second = words.next().unwrap_or("").to_lowercase();
+    let rest: Vec<String> = words.take(4).map(|w| w.to_lowercase()).collect();
     // "It"/"They" never carry their antecedent; "This"/"These"/"That" only when used as a
     // bare pronoun ("This must ...") rather than a determiner ("This crate must ...").
     let verbish = [
         "must", "shall", "should", "may", "will", "can", "cannot", "is", "are", "was", "were",
         "has", "have", "never", "always", "returns", "means",
     ];
-    let bare_pronoun = matches!(first, "It" | "They")
-        || (matches!(first, "This" | "These" | "That") && verbish.contains(&second.as_str()));
+    // After another sentence of the same block, the antecedent is that sentence.
+    let bare_pronoun = !follows_sentence
+        && !expletive_it(first, &second, &rest)
+        && (matches!(first, "It" | "They")
+            || (matches!(first, "This" | "These" | "That") && verbish.contains(&second.as_str())));
     if bare_pronoun {
         out.push(AmbiguityNote {
             kind: AmbiguityKind::UnresolvedSubject,
@@ -516,6 +564,39 @@ fn ambiguity_notes(text: &str, words: &[String], modality: Modality) -> Vec<Ambi
         });
     }
     out
+}
+
+/// "It is not known if ...", "It was decided that ...": a dummy subject, not a pronoun.
+fn expletive_it(first: &str, second: &str, rest: &[String]) -> bool {
+    const CLAUSE: &[&str] = &[
+        "if", "whether", "that", "which", "who", "how", "what", "when", "to",
+    ];
+    const STATE: &[&str] = &[
+        "known",
+        "unknown",
+        "clear",
+        "unclear",
+        "decided",
+        "undecided",
+        "possible",
+        "likely",
+        "unlikely",
+        "necessary",
+        "important",
+        "assumed",
+        "expected",
+        "confirmed",
+        "verified",
+    ];
+    if first != "It" || !matches!(second, "is" | "was") {
+        return false;
+    }
+    let rest: Vec<&str> = rest
+        .iter()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+        .skip_while(|w| matches!(*w, "not" | "yet" | "still" | "also"))
+        .collect();
+    matches!(rest.as_slice(), [state, clause, ..] if STATE.contains(state) && CLAUSE.contains(clause))
 }
 
 // ---------------------------------------------------------------- constraints
@@ -536,13 +617,14 @@ fn name_like(s: &str) -> bool {
 
 fn constraint_form(
     s: &Sentence<'_>,
+    text: &str,
     words: &[String],
     modality: Modality,
 ) -> Option<ConstraintForm> {
     if modality != Modality::MustNot {
         return None;
     }
-    let toks = tokens(s.text);
+    let toks = tokens(text);
     if let Some(i) = (0..toks.len().saturating_sub(3)).find(|&i| {
         matches!(toks[i].lower.as_str(), "must" | "shall")
             && matches!(toks[i + 1].lower.as_str(), "not" | "never")
@@ -584,17 +666,87 @@ fn constraint_form(
         }
     }
     // Failure sites: Rust panics, exceptions elsewhere (one check, see FactKind::PanicSite).
-    if negated_near(words, |w| {
+    let failure = |w: &str| {
         w.starts_with("panic")
             || matches!(w, "throw" | "throws" | "raise" | "raises")
             || w.starts_with("exception")
-    }) {
-        return Some(ConstraintForm::NoPanic { scope: scope_of(s) });
+    };
+    let is_unsafe = |w: &str| w == "unsafe";
+    if negated_near(words, failure) {
+        let scope = scope_of(s);
+        return (!scope.is_empty() || names_whole_codebase(words, failure))
+            .then_some(ConstraintForm::NoPanic { scope });
     }
-    if negated_near(words, |w| w == "unsafe") {
-        return Some(ConstraintForm::NoUnsafe { scope: scope_of(s) });
+    if negated_near(words, is_unsafe) {
+        let scope = scope_of(s);
+        return (!scope.is_empty() || names_whole_codebase(words, is_unsafe))
+            .then_some(ConstraintForm::NoUnsafe { scope });
     }
     None
+}
+
+/// Nouns that name all of the analyzed code rather than one part of it.
+const WHOLE_CODE: &[&str] = &[
+    "crate",
+    "crates",
+    "library",
+    "package",
+    "packages",
+    "project",
+    "codebase",
+    "code",
+    "workspace",
+    "repository",
+    "implementation",
+];
+
+/// An unscoped no-panic/no-unsafe constraint is checked against every source root, so
+/// its subject must be the code as a whole ("This crate must not use unsafe code",
+/// "Unsafe code is forbidden"). "The client never throws" names a part that cannot be
+/// resolved; checking it against everything would contradict it with unrelated code.
+fn names_whole_codebase(words: &[String], target: impl Fn(&str) -> bool) -> bool {
+    const VERBS: &[&str] = &[
+        "must", "shall", "should", "may", "can", "cannot", "will", "never", "is", "are", "does",
+        "do", "contains", "contain", "has", "have", "uses", "use",
+    ];
+    const DETERMINERS: &[&str] = &[
+        "the",
+        "this",
+        "our",
+        "its",
+        "all",
+        "any",
+        "no",
+        "entire",
+        "whole",
+        "production",
+        "source",
+        "public",
+    ];
+    let end = words
+        .iter()
+        .position(|w| VERBS.contains(&w.as_str()))
+        .unwrap_or(words.len());
+    let subject: Vec<&str> = words[..end]
+        .iter()
+        .map(String::as_str)
+        .filter(|w| !DETERMINERS.contains(w))
+        .collect();
+    let Some(last) = subject.last() else {
+        return false;
+    };
+    if subject.iter().any(|w| target(w)) {
+        // "Unsafe code is forbidden" is global; "... forbidden in the parser" is not.
+        let rest = &words[end..];
+        return !rest.iter().enumerate().any(|(i, w)| {
+            matches!(w.as_str(), "in" | "within" | "inside")
+                && rest[i + 1..]
+                    .iter()
+                    .find(|n| !DETERMINERS.contains(&n.as_str()))
+                    .is_some_and(|n| !WHOLE_CODE.contains(&n.as_str()))
+        });
+    }
+    WHOLE_CODE.contains(last)
 }
 
 /// Whether a word matching `target` is itself the object of a negation: a negating
@@ -660,4 +812,93 @@ fn scope_of(s: &Sentence<'_>) -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(text: &str) -> Option<Classified> {
+        // Code ranges: locate backtick pairs.
+        let mut ranges = Vec::new();
+        let mut start = None;
+        for (i, c) in text.char_indices() {
+            if c == '`' {
+                match start.take() {
+                    Some(s) => ranges.push((s, i + 1)),
+                    None => start = Some(i),
+                }
+            }
+        }
+        let codes: Vec<String> = ranges
+            .iter()
+            .map(|&(s, e)| text[s + 1..e - 1].to_string())
+            .collect();
+        classify(&Sentence {
+            text,
+            code_ranges: &ranges,
+            refs: &[],
+            codes: &codes,
+            labels: &[],
+            quoted: &[],
+            follows_sentence: false,
+        })
+    }
+
+    #[test]
+    fn modality_and_kind() {
+        let c = run("The server MUST reject empty requests.").unwrap();
+        assert_eq!(
+            (c.modality, c.kind),
+            (Modality::Must, ClaimKind::Requirement)
+        );
+        let c = run("Clients should never retry on 4xx responses.").unwrap();
+        assert_eq!(
+            (c.modality, c.kind),
+            (Modality::ShouldNot, ClaimKind::Prohibition)
+        );
+        assert!(run("The weather is nice today.").is_none());
+    }
+
+    #[test]
+    fn bound_extraction() {
+        let c = run("A client must never exceed 100 requests per window.").unwrap();
+        assert_eq!(c.kind, ClaimKind::Invariant);
+        let b = &c.bounds[0];
+        assert_eq!((b.op, b.value), (BoundOp::Le, 100.0));
+        assert_eq!(b.unit.as_deref(), Some("requests"));
+    }
+
+    #[test]
+    fn dependency_constraint() {
+        let c = run("`domain` must not depend on `infra`.").unwrap();
+        assert_eq!(
+            c.constraint,
+            Some(ConstraintForm::NoDependency {
+                from: "domain".into(),
+                to: "infra".into()
+            })
+        );
+        assert_eq!(c.kind, ClaimKind::ArchitecturalConstraint);
+    }
+}
+
+#[cfg(test)]
+mod negation_tests {
+    use super::negated_near;
+    use crate::text::words_lower;
+
+    fn unsafe_neg(s: &str) -> bool {
+        negated_near(&words_lower(s), |w| w == "unsafe")
+    }
+
+    #[test]
+    fn unsafe_constraint_requires_negation_of_unsafe_itself() {
+        assert!(unsafe_neg("This crate must not use unsafe code."));
+        assert!(unsafe_neg("The parser SHALL contain no unsafe blocks."));
+        assert!(unsafe_neg("Unsafe code is forbidden in the core."));
+        assert!(!unsafe_neg(
+            "Corrupted witness, zero allowance, unsafe reinvestment and budget exhaustion produce the owning refusal, never an opportunistic different winner."
+        ));
+    }
 }

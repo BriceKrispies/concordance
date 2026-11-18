@@ -4,6 +4,7 @@ Concordance checks that a project's Markdown specifications and its source code 
 
 It reads the claims in your docs (requirements, MUST/SHALL statements, documented signatures, references to code), indexes the source, and reconciles the two. Each claim is reported as verified, violated, ambiguous or unverified, and every finding points at the exact lines in the spec and the code. It also reports code that no document mentions.
 
+- Specifications are Markdown, or Exegra JSONC files (see `docs/requirements.md`).
 - Requirement IDs in the spec (`**LANG-006.3**`) link to tests that declare `Verifies: LANG-006.3`. Ingested test results (libtest, nextest, JUnit, vitest/jest) then verify or violate them.
 - `concordance lint --strict` enforces the spec-driven requirement format (atomic, observable, at the boundary, provable, traceable to a white paper): see `docs/spec-lint.md`.
 - A specification kept as one structured JSONC file in the Exegra format works the same way: Concordance reads its requirement and prose properties, reports locations in terms of the JSONC, and can write per-requirement results back for Exegra (`--exegra-results`). See `docs/requirements.md`.

@@ -40,6 +40,10 @@ pub struct Inline {
     pub items: Vec<Item>,
     /// (text offset, source byte start, source byte end)
     pub anchors: Vec<(usize, usize, usize)>,
+    /// Table rows: text ranges of the injected `Header: ` labels.
+    pub labels: Vec<(usize, usize)>,
+    /// Table rows: text ranges of cells that quote another source (see `parse::QUOTED_HEADERS`).
+    pub quoted: Vec<(usize, usize)>,
 }
 
 impl Inline {
@@ -122,6 +126,13 @@ impl Inline {
 
     pub fn push_raw(&mut self, s: &str) {
         self.text.push_str(s);
+    }
+
+    /// Append a column label; it is recorded so classification can ignore it.
+    pub fn push_label(&mut self, s: &str) {
+        let start = self.text.len();
+        self.text.push_str(s);
+        self.labels.push((start, self.text.len()));
     }
 
     /// Source byte for a text offset (best effort).

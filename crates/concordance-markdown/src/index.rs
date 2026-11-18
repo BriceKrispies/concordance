@@ -1,6 +1,7 @@
 //! Assembly of a [`DocumentIndex`] from the parsed blocks.
 
 use crate::authority;
+use crate::citations::{extract_citations, CitationMatch};
 use crate::classify::{self, Sentence};
 use crate::inline::{Inline, Item};
 use crate::lines::LineIndex;
@@ -8,7 +9,8 @@ use crate::parse::{self, Raw};
 use crate::refs;
 use crate::requirements;
 use crate::sections::{role_from_heading, AnchorAllocator};
-use crate::text::{mask_ranges, split_sentences};
+use crate::text::{mask_ranges, split_sentences, words_lower};
+use crate::Hints;
 use concordance_core::doc::*;
 use concordance_core::lang::Languages;
 use concordance_core::{ClaimId, ContentHash, DocumentId, RepoPath, SectionId, SourceRange};
@@ -32,6 +34,9 @@ struct Builder<'a> {
     block_req: Option<String>,
     /// Attribute bullets of the requirement opening the text block being processed.
     block_attrs: RequirementAttributes,
+    hints: &'a Hints,
+    /// Authority a hint sets for the text block being processed.
+    block_authority: Option<Authority>,
 }
 
 /// The requirement ID a heading defines: its first word, if that word is an ID
@@ -42,6 +47,24 @@ fn heading_requirement(plain: &str) -> Option<String> {
         .trim_end_matches([':', '.', ',', ')'])
         .trim_start_matches('(');
     is_requirement_id(first).then(|| first.to_string())
+}
+
+/// A statement the caller declared to be a claim although it has no modal verb (a rule
+/// in a register states what must hold in the present tense).
+fn forced(sent: &str, code_ranges: &[(usize, usize)]) -> classify::Classified {
+    let modality = classify::modality(&words_lower(&mask_ranges(sent, code_ranges)));
+    let kind = if matches!(modality, Modality::MustNot | Modality::ShouldNot) {
+        ClaimKind::Prohibition
+    } else {
+        ClaimKind::Requirement
+    };
+    classify::Classified {
+        modality,
+        kind,
+        bounds: Vec::new(),
+        ambiguity: Vec::new(),
+        constraint: None,
+    }
 }
 
 fn code_ranges(inline: &Inline) -> Vec<(usize, usize)> {
@@ -77,6 +100,31 @@ impl<'a> Builder<'a> {
                 })
             }
         }
+    }
+
+    /// Citations in a block, as references located in the source.
+    fn citations(&self, inline: &Inline) -> Vec<(usize, Reference)> {
+        extract_citations(&inline.text)
+            .into_iter()
+            .map(
+                |CitationMatch {
+                     start,
+                     end,
+                     text,
+                     target,
+                 }| {
+                    let a = inline.byte_at(start);
+                    let b = inline.byte_at(end.saturating_sub(1)) + 1;
+                    let reference = Reference {
+                        text,
+                        target,
+                        strength: ReferenceStrength::Explicit,
+                        range: Some(self.lines.range(self.path, a, b.max(a + 1))),
+                    };
+                    (start, reference)
+                },
+            )
+            .collect()
     }
 
     fn add_prose(&mut self, section: &SectionId, refs: Vec<Reference>) {
@@ -128,7 +176,9 @@ impl<'a> Builder<'a> {
         *occ += 1;
         let id = ClaimId::from_key(&[self.path.as_str(), &hp, &lower, &occ_s]);
         let content_hash = ContentHash::of_str(&format!("{hp}{SEP}{text}"));
-        let authority = self.effective_authority(section.role);
+        let authority = self
+            .block_authority
+            .unwrap_or_else(|| self.effective_authority(section.role));
         let (bounds, ambiguity, documented_signature, constraint) = extra;
         let requirement = match (&self.block_req, &self.sec_req[sec]) {
             (Some(id), _) => Some(RequirementRef {
@@ -179,15 +229,23 @@ impl<'a> Builder<'a> {
     ) {
         let text = inline.text.as_str();
         let cranges = code_ranges(inline);
-        let sentences = match whole_row {
-            Some(_) => vec![(0, text.len())],
-            None => split_sentences(text, &cranges),
+        let start_byte = whole_row.map_or_else(|| inline.byte_at(0), |w| w.0);
+        let hints = self.hints;
+        let hint = hints.blocks.get(&self.lines.line(start_byte));
+        let sentences = if whole_row.is_some() || hint.is_some_and(|h| h.whole_claim) {
+            vec![(0, text.len())]
+        } else {
+            split_sentences(text, &cranges)
         };
         let section_id = self.sections[sec].id.clone();
         let opener = requirements::opener(self.lines.source(), inline, false);
-        self.block_req = opener.as_ref().map(|(id, _)| id.clone());
+        self.block_req = hint
+            .and_then(|h| h.requirement.clone())
+            .or_else(|| opener.as_ref().map(|(id, _)| id.clone()));
+        self.block_authority = hint.and_then(|h| h.authority);
         let skip = opener.map(|(_, n)| n).unwrap_or(0);
-        for (s, e) in sentences {
+        let citations = self.citations(inline);
+        for (k, (s, e)) in sentences.into_iter().enumerate() {
             // The opening ID is a label, not part of the statement.
             let s = if s < skip { skip.min(e) } else { s };
             if s >= e {
@@ -210,12 +268,37 @@ impl<'a> Builder<'a> {
                     refs.push(r);
                 }
             }
-            let classified = classify::classify(&Sentence {
+            let rel = |v: &[(usize, usize)]| -> Vec<(usize, usize)> {
+                v.iter()
+                    .filter(|&&(a, b)| a >= s && b <= e && a < b)
+                    .map(|&(a, b)| (a - s, b - s))
+                    .collect()
+            };
+            let (labels, quoted) = (rel(&inline.labels), rel(&inline.quoted));
+            let mut classified = classify::classify(&Sentence {
                 text: sent,
                 code_ranges: &rel_ranges,
                 refs: &refs,
                 codes: &codes,
+                labels: &labels,
+                quoted: &quoted,
+                follows_sentence: k > 0,
+            })
+            .or_else(|| {
+                hint.filter(|h| h.whole_claim)
+                    .map(|_| forced(sent, &rel_ranges))
             });
+            if let (Some(c), Some(k)) = (classified.as_mut(), hint.and_then(|h| h.kind)) {
+                c.kind = k;
+            }
+            // Added after classification: a citation says where a fact came from; it
+            // does not make a sentence a claim.
+            refs.extend(
+                citations
+                    .iter()
+                    .filter(|(at, _)| *at >= s && *at < e)
+                    .map(|(_, r)| r.clone()),
+            );
             match classified {
                 Some(c) => {
                     let range = match whole_row {
@@ -240,6 +323,7 @@ impl<'a> Builder<'a> {
                 None => self.add_prose(&section_id, refs),
             }
         }
+        self.block_authority = None;
     }
 
     fn code_block(&mut self, sec: usize, lang: &str, content: &str, first_byte: usize) {
@@ -303,6 +387,7 @@ pub fn build(
     text: &str,
     configured: Option<AuthorityAssessment>,
     languages: &Languages,
+    hints: &Hints,
 ) -> DocumentIndex {
     let front = authority::front_matter(text);
     let parse_text = match &front {
@@ -347,6 +432,8 @@ pub fn build(
         sec_req: vec![None],
         block_req: None,
         block_attrs: RequirementAttributes::default(),
+        hints,
+        block_authority: None,
     };
     let found = requirements::find(&raws, text, &lines);
 
@@ -414,8 +501,9 @@ pub fn build(
                 stack.push((*level, idx));
                 current = idx;
                 let sid = b.sections[idx].id.clone();
-                let hrefs: Vec<Reference> =
+                let mut hrefs: Vec<Reference> =
                     inline.items.iter().filter_map(|i| b.reference(i)).collect();
+                hrefs.extend(b.citations(inline).into_iter().map(|(_, r)| r));
                 b.add_prose(&sid, hrefs);
             }
             Raw::Text {

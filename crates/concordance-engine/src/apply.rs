@@ -1122,7 +1122,7 @@ impl Pending {
         let edges = link::prose_edges(m, doc_id, &doc.path, &refs, fs);
         self.replace_doc_edges(m, &node, edges, events);
         let edges: Vec<Edge> = m.edges_from(&node).cloned().collect();
-        let found = structural::prose_evidence(m, &doc, &refs, &edges, &self.ctx);
+        let found = structural::prose_evidence(m, &doc, &refs, &edges, fs, &self.ctx);
         self.replace_structural_evidence(
             m,
             &node,
@@ -1131,10 +1131,24 @@ impl Pending {
             events,
         );
         let mut keep: HashSet<FindingId> = HashSet::new();
-        for (subject, ev) in found {
-            let f = derive::prose_finding(m, &doc, subject, &ev, &self.ctx);
+        let mut citations: Vec<(FindingSubject, Vec<&Evidence>)> = Vec::new();
+        for (subject, ev) in &found {
+            if concordance_reconcile::citation::is_citation_check(ev) {
+                match citations.iter_mut().find(|c| &c.0 == subject) {
+                    Some(c) => c.1.push(ev),
+                    None => citations.push((subject.clone(), vec![ev])),
+                }
+                continue;
+            }
+            let f = derive::prose_finding(m, &doc, subject.clone(), ev, &self.ctx);
             keep.insert(f.id.clone());
             self.put_finding(m, f, events);
+        }
+        for (subject, evs) in citations {
+            if let Some(f) = derive::citation_prose_finding(&doc, subject, &evs, &self.ctx) {
+                keep.insert(f.id.clone());
+                self.put_finding(m, f, events);
+            }
         }
         for f in old_open.into_iter().filter(|f| !keep.contains(f)) {
             self.resolve_finding(m, &f, events);
