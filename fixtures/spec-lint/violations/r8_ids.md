@@ -5,7 +5,7 @@
 - Boundary: B-1 `tool build`
 - Traces: G-1
 
-**IDNT-02** `tool build` SHALL print the second line of its report.
+**IDNT-00002** `tool build` SHALL print the second line of its report.
 - Verify: example
 - Boundary: B-1 `tool build`
 - Traces: G-1
