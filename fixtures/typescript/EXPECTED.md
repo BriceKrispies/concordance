@@ -15,7 +15,7 @@ A TypeScript package (vitest tests) checked through the TypeScript plugin.
 Checked by the LANG-001 and RES-001 conformance proofs (see `docs/requirements.md`, "Case tables"). Adding a row adds a case.
 A row passes when some open finding whose title or claim text contains `Claim contains` has the given status,
 category and location. `absent` and `absent:status` mean no such finding exists; `!x` negates a cell.
-Rows that name a results file install it as the test-results file before the scan.
+Rows that name a results file install it as the test-results file and record it (`concordance record`) before the scan.
 
 | Case | Requirement | Results | Claim contains | Status | Category | Location |
 |---|---|---|---|---|---|---|

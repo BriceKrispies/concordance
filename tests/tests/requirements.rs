@@ -9,7 +9,6 @@ use concordance_core::graph::{EdgeKind, NodeRef};
 use concordance_graph::Model;
 use concordance_tests::*;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 const TEST: &str = "tests::nested_comment_ends_at_the_balancing_close";
 
@@ -55,18 +54,13 @@ async fn rescan(r: &Running) -> Model {
     r.engine.shared.read(|m| m.clone()).0
 }
 
-/// Write `text` as the run output, strictly after every source modification.
-async fn record(results: &Path, text: &str) {
-    tokio::time::sleep(Duration::from_millis(30)).await;
-    std::fs::write(results, text).unwrap();
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_link_is_explained_and_a_recorded_pass_goes_stale_on_change() {
     let repo = fixture_copy("requirements");
     let state = temp_dir("requirements-state");
     let results = state.join("cargo-test.txt"); // outside the repository, not yet written
-    let r = start(config(&repo, &state, &results), None, 8192).await;
+    let cfg = config(&repo, &state, &results);
+    let r = start(cfg.clone(), None, 8192).await;
     r.idle().await;
     let m = r.engine.shared.read(|m| m.clone()).0;
 
@@ -100,10 +94,12 @@ async fn a_link_is_explained_and_a_recorded_pass_goes_stale_on_change() {
         f2.explanation
     );
 
-    // Passing again, then the code changes: the old pass no longer describes it.
-    record(&results, &format!("test {TEST} ... ok\n")).await;
-    let _ = rescan(&r).await;
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    // The run passes and is recorded against these sources; then the code changes: the old
+    // pass no longer describes it.
+    std::fs::write(&results, format!("test {TEST} ... ok\n")).unwrap();
+    record_and_rescan(&r, &cfg).await;
+    let m = r.engine.shared.read(|m| m.clone()).0;
+    assert_eq!(requirement(&m, "LEX-001").status, FindingStatus::Verified);
     let lib = repo.join("src/lib.rs");
     let text = std::fs::read_to_string(&lib).unwrap();
     std::fs::write(
@@ -113,7 +109,7 @@ async fn a_link_is_explained_and_a_recorded_pass_goes_stale_on_change() {
     .unwrap();
     let m = rescan(&r).await;
     let f = requirement(&m, "LEX-001");
-    assert_eq!(f.status, FindingStatus::Unverified, "{}", f.explanation);
+    assert_eq!(f.status, FindingStatus::Stale, "{}", f.explanation);
     assert!(
         f.explanation.contains("changed after that run"),
         "{}",

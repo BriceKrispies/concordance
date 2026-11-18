@@ -111,6 +111,21 @@ pub async fn start(config: Config, backend: Option<Arc<dyn Backend>>, capacity: 
     }
 }
 
+/// Record every configured results file against the engine's current model, then rescan, so
+/// the run is bound to the content as it is now (what `concordance record` does).
+pub async fn record_and_rescan(r: &Running, config: &Config) {
+    // Index what is on disk now, so the manifest describes it.
+    r.engine.request_scan(false).await;
+    r.idle().await;
+    let (recorded, _) = r
+        .engine
+        .shared
+        .read(|m| concordance_engine::runs::record(m, config, 0));
+    recorded.expect("record the results");
+    r.engine.request_scan(false).await;
+    r.idle().await;
+}
+
 impl Running {
     pub async fn idle(&self) {
         tokio::time::timeout(Duration::from_secs(60), self.engine.wait_idle())

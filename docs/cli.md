@@ -2,12 +2,13 @@
 
 ```
 concordance serve  [common] [--port N] [--host ADDR] [--no-watch]
-concordance scan   [common] [--json | --jsonl] [--force] [--fail-on none|proven|violated] [-v] [--include-resolved]
+concordance scan   [common] [--json | --jsonl] [--force] [--fail-on none|proven|violated|unverified] [-v] [--include-resolved]
                    [--exegra-results FILE [--no-generated-at]]
 concordance watch  [common] [--jsonl]
 concordance report [common] [--format text|json] [--fail-on ...] [-v] [--include-resolved]
                    [--exegra-results FILE [--no-generated-at]]
 concordance lint   [common] [--strict] [--json]     # requirement format, see docs/spec-lint.md
+concordance record [common]                         # bind the test-results files to the content they ran on
 
 common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
         --config FILE  --state-dir DIR  --semantic | --no-semantic  --model ALIAS
@@ -34,12 +35,13 @@ roots is a TypeScript package.
 | Code | Meaning |
 |---|---|
 | 0 | Success. With `--fail-on`, the gate passed. |
-| 1 | `scan` and `report`: the `--fail-on` gate failed. `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge. `lint` has no `--fail-on`: it exits 1 when it has at least one error, and with `--strict` every warning counts as an error (info-level hints never do). |
-| 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`, a `[repos]` entry that is not a git repository or whose `cited` revision does not exist). |
+| 1 | `scan` and `report`: the `--fail-on` gate failed. `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge; `unverified` also counts every requirement of a started milestone that is not `verified`. `lint` has no `--fail-on`: it exits 1 when it has at least one error, and with `--strict` every warning counts as an error (info-level hints never do). |
+| 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`, `record` with no results file configured or a results file that does not exist, a `[repos]` entry that is not a git repository or whose `cited` revision does not exist). |
 | 3 | Runtime error (state database, I/O, cannot bind the port). |
 
-`unverified`, `planned`, `ambiguous`, `stale` and `undocumented` findings never fail the gate: they are not
-violations. With `[gate] started_milestones`, findings of requirements whose `Milestone:` is not started are
+`unverified`, `planned`, `ambiguous`, `stale` and `undocumented` findings never fail the gate under `proven`
+or `violated`: they are not violations. Under `--fail-on unverified` a requirement of a started milestone that is
+not `verified` fails it, whatever its status. With `[gate] started_milestones`, findings of requirements whose `Milestone:` is not started are
 left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requirements.md](requirements.md#milestones).
 Missing Claude is never treated as successful semantic verification. The report's
 `semantic.coverage` field states exactly what was and was not assessed.
@@ -48,11 +50,11 @@ Missing Claude is never treated as successful semantic verification. The report'
 
 | Status | Meaning |
 |---|---|
-| `verified` | Evidence establishes the claim: a matching documented signature, a satisfied deterministic constraint, a passing test in a run recorded after the last source change, or a semantic agreement that a challenge upheld. |
+| `verified` | Evidence establishes the claim: a matching documented signature, a satisfied deterministic constraint, a passing test in a run recorded against the current sources and requirement text (see [Recording test results](#recording-test-results)) whose proof is not reported, or a semantic agreement that a challenge upheld. |
 | `violated` | Contradicted: a structural contradiction (a dangling reference, a differing signature, a constant outside a documented bound, an unsafe or panic site where the claim forbids one, a forbidden dependency), a failing test, a proof-rule breach, or a semantic contradiction that survived a challenge. Its `category` says which. |
-| `unverified` | Nothing establishes the claim either way. This includes a test result recorded before a source change (re-run the tests), a requirement no test declares `Verifies:` for, and a suspected contradiction that has not been confirmed. |
+| `unverified` | Nothing establishes the claim either way. This includes a requirement no test declares `Verifies:` for, a passing test whose proof is reported (bypasses the boundary, calls no indexed code, states `True`, rests on an axiom), a test in a file no crate target compiles, and a suspected contradiction that has not been confirmed. |
 | `planned` | An `unverified` requirement whose milestone is not in `[gate] started_milestones`. A requirement with evidence keeps its own status. |
-| `stale` | Evidence the status rests on was invalidated and not re-established (semantic evidence after a change), or cited code changed at the `compare` revision (`citation_drift`). Never a gate failure. |
+| `stale` | Evidence the status rests on was invalidated and not re-established (semantic evidence after a change; a test result whose results file is unrecorded or was recorded against other sources or other requirement text: run the tests and `concordance record` again), or cited code changed at the `compare` revision (`citation_drift`). Never a gate failure. |
 | `ambiguous` | The claim cannot be read one way: vague or self-contradictory wording, conflicting bounds, a requirement declared by more than one proof, or a semantic `ambiguous` verdict. |
 | `undocumented` | Implementation behaviour (panics, error returns, environment reads, missing contract on public API) that no claim covers. Reported as `missing_documentation`. |
 
@@ -66,7 +68,8 @@ Human output lists every `violated`, `stale` and `ambiguous` finding and the fir
 
 - `scan` (default) prints a human summary on stdout and progress on stderr.
 - `scan --json` prints one JSON report: `tool`, `version`, `repository`, `revision`, `semantic`,
-  `counts`, `gate`, `citations` (only with `[repos]`), and `findings[]`. Each finding includes its `claim_refs` and `symbol_refs`, with
+  `counts`, `gate` (`fail_on`, `failed`, `proven_violations`, `suspected_violations`, `ignored_unstarted`,
+  `unverified_requirements`), `citations` (only with `[repos]`), and `findings[]`. Each finding includes its `claim_refs` and `symbol_refs`, with
   exact ranges for downstream tooling, and its requirement's `milestone` when it has one.
 - `scan --jsonl` prints every event envelope as one line, then the report as the last line.
 - `watch` streams events until Ctrl+C; with `--jsonl` the stream is machine-readable.
@@ -85,6 +88,16 @@ Human output lists every `violated`, `stale` and `ambiguous` finding and the fir
   the state is older than the source it warns on stderr: run `scan` first.
 
 None of the commands need a TTY. They work with piped stdin and stdout.
+
+## Recording test results
+
+`concordance record [common]` writes `<results file>.manifest.json` beside every configured results file
+(`test_results` or `--test-results`). The manifest holds the hash of the results file, of every indexed source
+file and of every requirement's statement text as they are when it runs. Run it right after the tests, with no edit
+in between; `scan` then accepts a result only while that content is unchanged, and treats a results file without
+a matching manifest as `stale` (see [requirements.md](requirements.md#test-results)). It prints one line per results file
+and exits 2 when no results file is configured or one cannot be read. It indexes the repository, writes only the
+manifests, and never modifies the analysed sources.
 
 ## Exegra results
 

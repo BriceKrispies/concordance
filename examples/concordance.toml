@@ -7,7 +7,7 @@ repo = "/path/to/repo"                 # relative paths resolve against this fil
 spec_roots = ["docs/specifications", "docs/architecture"]
 src_roots = ["crates", "src"]
 exclude = ["docs/archive/**"]           # globs relative to the repository root
-# test_results = ["ci/test-output.txt"]  # recorded test runs (libtest, nextest, JUnit XML, vitest/jest, TRX, lake build logs); relative to this file
+# test_results = ["ci/test-output.txt"]  # recorded test runs (libtest, nextest, JUnit XML, vitest/jest, TRX, lake build logs); relative to this file. Run `concordance record` right after the tests: a results file without its manifest verifies nothing
 # state_dir = "C:/somewhere/else"       # default: %LOCALAPPDATA%\concordance\<repo>-<hash>
 
 [authority]                              # globs; first matching list wins, in this order

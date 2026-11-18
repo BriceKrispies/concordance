@@ -1,6 +1,10 @@
 # Concordance analyzing itself: `concordance serve` or `concordance scan` from this directory.
 spec_roots = ["docs/specifications", "docs/spec"]
 src_roots = ["crates", "tests"]
+# The recorded run of the workspace tests. Produce and bind it with, from this directory:
+#   mkdir -p target/test-results && cargo test --workspace 2>&1 | tee target/test-results/cargo-test.txt
+#   concordance record
+test_results = ["target/test-results/cargo-test.txt"]
 
 [authority]
 normative = ["docs/specifications/**", "docs/spec/**"]

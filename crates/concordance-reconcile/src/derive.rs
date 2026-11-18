@@ -6,16 +6,19 @@
 //! 3. semantic `disagrees` upheld by an adversarial challenge -> `violated` (suspected semantic)
 //! 4. semantic evidence invalidated by a change and not re-established -> `stale`
 //! 5. semantic `ambiguous` verdict -> `ambiguous`
-//! 6. a test declaring `Verifies: <requirement>` passed in a run recorded after the last
-//!    source change (one-statement requirement) -> `verified`
+//! 6. a test declaring `Verifies: <requirement>` passed in a run recorded against the current
+//!    sources and requirement text, and its proof is not reported (one-statement requirement)
+//!    -> `verified`
 //! 7. heuristic vague wording -> `ambiguous`
 //! 8. semantic `agrees`, challenged and upheld (or unchallenged for low-impact claims) -> `verified`
 //! 9. valid structural support of strength >= Strong covering the claim -> `verified`
 //! 10. a cited path that matches several files -> `ambiguous`
 //! 11. cited code changed at the configured `compare` revision -> `stale` (citation drift)
-//! 12. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected;
+//! 12. a test result whose run is unrecorded, or was recorded against other sources or other
+//!     requirement text -> `stale` (invalidated evidence)
+//! 13. suggestive contradictions (moderate structural, unchallenged/refuted semantic) -> `unverified` (suspected;
 //!     labelled structural when only structural evidence suggests it)
-//! 13. otherwise -> `unverified` (missing evidence)
+//! 14. otherwise -> `unverified` (missing evidence)
 
 use crate::citation::is_citation_check;
 use crate::text::spec_citation;
@@ -297,6 +300,16 @@ pub fn claim_finding(
             confidence: 0.8,
             quality: EvidenceQuality::Strong,
             headline: format!("Cited code changed since the cited revision: {}", e.summary),
+        }
+    } else if let Some(e) = test_evidence.iter().copied().find(|e| {
+        matches!(&e.method, Method::Test { outcome, .. } if outcome == "outdated" || outcome == "unrecorded")
+    }) {
+        Decision {
+            status: FindingStatus::Stale,
+            category: FindingCategory::InvalidatedEvidence,
+            confidence: 0.7,
+            quality: EvidenceQuality::Weak,
+            headline: format!("A recorded test result no longer describes this requirement: {}", e.summary),
         }
     } else if !moderate_contra.is_empty()
         || sem_verdict == Some("disagrees")

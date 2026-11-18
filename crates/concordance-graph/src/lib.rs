@@ -5,10 +5,12 @@
 //! semantic context builder) take shared access through the engine's lock. Nothing in
 //! here performs I/O.
 
+mod compiled;
 mod mutate;
 mod neighborhood;
 mod resolve;
 
+pub use compiled::is_external_mod;
 pub use neighborhood::{Neighborhood, NeighborhoodEdge, NeighborhoodNode};
 pub use resolve::{lexical_candidates, Resolved, STD_ROOTS};
 
@@ -113,6 +115,25 @@ impl Model {
             .filter_map(|s| self.symbols.get(s))
     }
 
+    /// Hash of the statement text of every requirement, by ID: the sorted texts of the claims
+    /// that carry it, so moving a statement within or between documents does not change it.
+    pub fn requirement_statements(&self) -> BTreeMap<String, ContentHash> {
+        let mut texts: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        for c in self.requirement_claims() {
+            if let Some(r) = &c.requirement {
+                texts.entry(r.id.clone()).or_default().push(c.text.as_str());
+            }
+        }
+        texts
+            .into_iter()
+            .map(|(id, mut t)| {
+                t.sort_unstable();
+                let h = ContentHash::of_str(&t.join(""));
+                (id, h)
+            })
+            .collect()
+    }
+
     /// Every claim that carries a requirement ID.
     pub fn requirement_claims(&self) -> impl Iterator<Item = &Claim> {
         self.idx
@@ -136,12 +157,21 @@ impl Model {
         sym: &Symbol,
     ) -> Option<(&TestRun, concordance_core::testrun::TestOutcome)> {
         let mut best: Option<(usize, &TestRun, concordance_core::testrun::TestOutcome)> = None;
+        let crate_of = |s: &Symbol| {
+            self.files
+                .get(&s.file)
+                .and_then(|f| f.crate_name.as_deref())
+        };
         for run in &self.test_runs {
             for k in 1..=sym.path.len() {
                 let name = sym.path[sym.path.len() - k..].join("::");
                 let Some(o) = run.results.get(&name) else {
                     continue;
                 };
+                // A line printed by another crate's test binary is not this test's result.
+                if !run.reported_in(&name, crate_of(sym)) {
+                    continue;
+                }
                 // A result name that is also a suffix of another test's path is ambiguous.
                 let segs: Vec<&str> = name.split("::").collect();
                 let others = self
@@ -154,6 +184,8 @@ impl Model {
                     .filter(|o| {
                         o.id != sym.id
                             && o.is_test
+                            && run.reported_in(&name, crate_of(o))
+                            && self.test_is_compiled(o)
                             && o.path.len() >= segs.len()
                             && o.path[o.path.len() - segs.len()..]
                                 .iter()

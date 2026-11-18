@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `Case` | unique short name |
 //! | `Requirement` | the umbrella requirement the row belongs to |
-//! | `Results` | `none`, or a results file relative to the fixture, installed as the configured test-results file before the scan |
+//! | `Results` | `none`, or a results file relative to the fixture, installed as the configured test-results file and recorded (as `concordance record` does) before the final scan |
 //! | `Claim contains` | substring identifying the finding: found in its title or in the text of one of its claims (empty: every finding) |
 //! | `Status` | the expected status (`violated`, `verified`, ...); `!status` for any other status; `absent` or `absent:status` for "no such finding" |
 //! | `Category` | optional category filter (`structural_contradiction`, `test_failure`, ...), `!category` negates |
@@ -21,7 +21,7 @@
 //! its rows by `Results`, installs each results file, scans, checks every row, and fails once
 //! with every failing row.
 
-use crate::{fixture_copy, repo_root, start, temp_dir};
+use crate::{fixture_copy, record_and_rescan, repo_root, start, temp_dir};
 use concordance_core::config::{Config, ConfigFile, Overrides};
 use concordance_core::finding::Finding;
 use concordance_graph::Model;
@@ -29,7 +29,6 @@ use concordance_lint::{parse_cases, CaseTable};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 /// `Cases:` of the requirement `id`, read from `docs/spec/*.md` through the Markdown indexer.
 pub fn spec_cases(id: &str) -> Vec<String> {
@@ -167,8 +166,6 @@ pub async fn scan_with(fixture: &str, results: Option<&str>) -> Scanned {
                 std::fs::read(repo.join(rel)).unwrap_or_else(|e| panic!("{fixture}/{rel}: {e}"));
             let name = Path::new(rel).file_name().unwrap();
             let dst = state.join(name);
-            // Strictly after every source file of the copy, so the run is not stale.
-            tokio::time::sleep(Duration::from_millis(30)).await;
             std::fs::write(&dst, text).unwrap();
             dst
         }
@@ -190,8 +187,12 @@ pub async fn scan_with(fixture: &str, results: Option<&str>) -> Scanned {
     )
     .unwrap();
     let before = tree_hash(&repo);
-    let r = start(config, None, 8192).await;
+    let r = start(config.clone(), None, 8192).await;
     r.idle().await;
+    if results.is_some() {
+        // The run was made on these sources: bind it, as `concordance record` does.
+        record_and_rescan(&r, &config).await;
+    }
     let model = r.engine.shared.read(|m| m.clone()).0;
     r.stop().await;
     let after = tree_hash(&repo);

@@ -213,8 +213,19 @@ a table is a case added, with no change to the requirement.
   proof.
 - A declaring proof whose resolved calls are all non-public symbols: a violated finding with
   `rule = bypasses_boundary`. Calls are followed through test scaffolding (tests, `cfg(test)` items,
-  anything under `tests/`) so a helper that drives the public API counts as the proof. A proof with
-  no resolved call at all (a scenario that runs the command as a process) is not reported.
-  Resolution is syntactic: calls through trait objects and closures are not followed, and a method call
+  anything under `tests/`) so a helper that drives the public API counts as the proof.
+- A Rust proof with no call that resolves to indexed code at all (an empty test, one that only calls other
+  crates): an ambiguous, low-severity finding with `rule = calls_nothing`. Calls in the arguments of
+  `assert!`, `assert_eq!`, `assert_ne!` and their `debug_` forms are read. A proof that runs the package's own
+  binary (`env!("CARGO_BIN_EXE_<name>")`, in the proof or in a test helper it calls) reaches the command-line
+  boundary and is not reported. TypeScript, C# and Lean proofs are not judged by their calls.
+- A Lean theorem that states `True`: a violated finding with `rule = trivial_statement`; one that mentions,
+  directly or through the definitions and theorems it names, an `axiom` declared in the repository: an
+  ambiguous, low-severity finding with `rule = uses_axiom`.
+- A passing result of a proof reported by any of these rules does not verify its requirement: the requirement
+  stays `unverified` and says why.
+
+Resolution is syntactic: calls through trait objects and closures are not followed, a method call
   matched by name alone (`x.name()` where the receiver's type is not known, `Resolution::NameOnly` in the
-  graph) does not count as reaching that symbol.
+  graph) does not count as reaching that symbol, a bare name resolves first to a function of the caller's own
+  file, and a private item of another crate is never a call target.
