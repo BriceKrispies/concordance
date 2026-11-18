@@ -93,10 +93,20 @@ pub fn parse(text: &str) -> BTreeMap<String, TestOutcome> {
             put(name, o);
         }
     }
+    // libtest prints a failing test's captured output after `failures:` under
+    // `---- name stdout ----` headers, up to the next `failures:` list or `test result:` line.
+    // Lines in there are the program's own output (a test may print a libtest line), not results.
+    let mut captured = false;
     for line in text.lines() {
         let l = line.trim();
+        if l.starts_with("---- ") && l.ends_with(" ----") {
+            captured = true;
+        } else if l == "failures:" || l.starts_with("test result:") {
+            captured = false;
+        }
+        let libtest = if captured { None } else { parse_libtest(l) };
         if let Some((name, o)) = parse_json(l)
-            .or_else(|| parse_libtest(l))
+            .or(libtest)
             .or_else(|| parse_nextest(l))
             .or_else(|| parse_vitest(l))
         {
@@ -483,6 +493,15 @@ test result: FAILED. 1 passed; 1 failed
         assert_eq!(r.get("top level"), Some(&TestOutcome::Passed));
         assert_eq!(r.get("after an empty suite"), Some(&TestOutcome::Passed));
         assert_eq!(r.len(), 5);
+    }
+
+    #[test]
+    fn a_libtest_line_inside_captured_output_is_not_a_result() {
+        // The test `target` never ran; a line in the captured output of `printer` names it.
+        let text = "running 2 tests\ntest tests::printer ... FAILED\n\nfailures:\n\n---- tests::printer stdout ----\ntest tests::target ... ok\nthread 'tests::printer' panicked\n\nfailures:\n    tests::printer\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored\n";
+        let r = parse(text);
+        assert_eq!(r.get("tests::printer"), Some(&TestOutcome::Failed));
+        assert_eq!(r.get("tests::target"), None);
     }
 
     #[test]
