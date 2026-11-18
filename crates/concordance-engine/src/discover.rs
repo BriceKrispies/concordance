@@ -244,10 +244,10 @@ impl AuthorityRules {
 
     /// The authority of a document at `path`: the configured one, else, for a document rendered
     /// from a structured source, the normative authority its format gives it (a structured source
-    /// is a specification whatever its RFC keyword count or path).
+    /// is a specification whatever its RFC keyword count or path). The white paper is never one.
     pub fn assess_target(&self, path: &RepoPath, rendered: bool) -> Option<AuthorityAssessment> {
         self.assess(path).or_else(|| {
-            rendered.then(|| AuthorityAssessment {
+            (rendered && !self.is_whitepaper(path)).then(|| AuthorityAssessment {
                 level: Authority::Normative,
                 source: AuthoritySource::SpecFormat,
                 rationale: "rendered from a structured specification source (Exegra JSONC)"
@@ -302,5 +302,14 @@ mod tests {
             .unwrap();
         assert_eq!(c.level, Authority::Descriptive);
         assert_eq!(c.source, AuthoritySource::Configured);
+    }
+
+    #[test]
+    fn the_white_paper_is_not_a_structured_specification() {
+        let wp = RepoPath::from_relative_str("docs/whitepaper.md").unwrap();
+        let mut with_wp = rules("docs/guides/**");
+        with_wp.whitepaper = Some(wp.clone());
+        // Rendered from a structured source, but the white paper: no authority from the format.
+        assert!(with_wp.assess_target(&wp, true).is_none());
     }
 }
