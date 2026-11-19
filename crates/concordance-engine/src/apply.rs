@@ -611,7 +611,12 @@ impl Pending {
         self.remove_evidence_of(m, &node, |_| false);
         let fids: Vec<FindingId> = m
             .findings_for_symbol(id)
-            .filter(|f| matches!(f.subject, FindingSubject::Undocumented { .. }))
+            .filter(|f| {
+                matches!(
+                    f.subject,
+                    FindingSubject::Undocumented { .. } | FindingSubject::Verification { .. }
+                )
+            })
             .map(|f| f.id.clone())
             .collect();
         for f in fids {
@@ -796,11 +801,31 @@ impl Pending {
         {
             self.reconcile_conflicts(m, events);
         }
+        self.resolve_orphaned_findings(m, events);
         self.reconcile_proof_rules(m, events);
         claims
             .into_iter()
             .filter(|c| m.claims.get(c).is_some_and(|c| c.is_obligation()))
             .collect()
+    }
+
+    /// Resolve open findings about a symbol the model no longer holds (state persisted before
+    /// removals resolved them, or a file that left discovery between runs).
+    fn resolve_orphaned_findings(&mut self, m: &mut Model, events: &mut Vec<Event>) {
+        let orphans: Vec<FindingId> = m
+            .findings
+            .values()
+            .filter(|f| f.is_open())
+            .filter(|f| match &f.subject {
+                FindingSubject::Undocumented { symbol, .. }
+                | FindingSubject::Verification { symbol, .. } => !m.symbols.contains_key(symbol),
+                _ => false,
+            })
+            .map(|f| f.id.clone())
+            .collect();
+        for f in orphans {
+            self.resolve_finding(m, &f, events);
+        }
     }
 
     /// Proof-rule findings: a requirement with several declaring proofs, a proof that calls
