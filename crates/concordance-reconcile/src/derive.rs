@@ -23,7 +23,7 @@
 use crate::citation::is_citation_check;
 use crate::text::spec_citation;
 use crate::BatchContext;
-use concordance_core::doc::{Authority, Claim, ClaimKind, Document, Modality};
+use concordance_core::doc::{Authority, Claim, ClaimKind, Document, Modality, Realisation};
 use concordance_core::evidence::{Evidence, Method, MethodKind, Stance, Strength, StructuralCheck};
 use concordance_core::finding::{
     EvidenceQuality, Finding, FindingCategory, FindingStatus, FindingSubject, Lifecycle, Proposal,
@@ -384,6 +384,49 @@ pub fn claim_finding(
         }
     };
 
+    // How the requirement is realised changes what can establish it.
+    let attrs = claim.requirement.as_ref().map(|r| &r.attributes);
+    if let (Some(a), Some(r)) = (attrs, claim.requirement.as_ref()) {
+        match a.realisation_kind() {
+            Realisation::Construction if d.status != FindingStatus::Violated => {
+                d = construction_decision(model, &r.id, a);
+            }
+            Realisation::Operational
+                if matches!(
+                    d.status,
+                    FindingStatus::Unverified | FindingStatus::Stale | FindingStatus::Planned
+                ) =>
+            {
+                d = Decision {
+                    status: FindingStatus::Operational,
+                    category: FindingCategory::MissingEvidence,
+                    confidence: 0.9,
+                    quality: EvidenceQuality::None,
+                    headline: format!(
+                        "Operational requirement `{}`: it is measured on a running deployment, so no code or test in this repository is expected to establish it.",
+                        r.id
+                    ),
+                };
+            }
+            Realisation::Hole if d.status == FindingStatus::Verified => {
+                let n = model.implementers_of(&r.id).len();
+                if n != 1 {
+                    d = Decision {
+                        status: FindingStatus::Unverified,
+                        category: FindingCategory::MissingEvidence,
+                        confidence: 0.8,
+                        quality: EvidenceQuality::Weak,
+                        headline: format!(
+                            "Hole `{}` has passing tests but {} implementing items; exactly one item must declare `Implements: {}`.",
+                            r.id, n, r.id
+                        ),
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Supporting / contradicting sets: valid evidence by stance.
     let supporting: Vec<_> = valid
         .iter()
@@ -502,17 +545,21 @@ pub fn claim_finding(
         why_it_matters(claim, doc)
     ));
 
-    // A requirement of a milestone that is not started is planned, not unverified.
+    // A requirement of a milestone that is not started (a hole of a component that is not
+    // started) is planned, not unverified.
     let milestone = claim
         .requirement
         .as_ref()
         .and_then(|r| r.attributes.milestone_number());
-    if d.status == FindingStatus::Unverified && !ctx.gate.is_started(milestone) {
+    let started = attrs.is_none_or(|a| ctx.gate.attributes_started(a));
+    if d.status == FindingStatus::Unverified && !started {
         d.status = FindingStatus::Planned;
-        d.headline = format!(
-            "Planned: milestone {} is not started, so this requirement is not gated yet.",
-            milestone.unwrap_or_default()
-        );
+        d.headline = match milestone {
+            Some(m) => format!(
+                "Planned: milestone {m} is not started, so this requirement is not gated yet."
+            ),
+            None => "Planned: the component that implements this hole is not started, so it is not gated yet.".to_string(),
+        };
     }
     let severity = severity_for(d.status, d.category, claim.authority);
     let (crate_name, module) = locate(model, &symbols);
@@ -565,6 +612,58 @@ pub fn claim_finding(
         lifecycle: Lifecycle::Open,
         crate_name,
         module,
+    }
+}
+
+/// The decision for a `construction` requirement: verified when every Exegra claim that
+/// models it is verified in the configured Exegra results, otherwise unverified with the reason.
+fn construction_decision(
+    model: &Model,
+    id: &str,
+    a: &concordance_core::doc::RequirementAttributes,
+) -> Decision {
+    let claims = a.modelled_by_ids();
+    if claims.is_empty() {
+        return Decision {
+            status: FindingStatus::Unverified,
+            category: FindingCategory::MissingEvidence,
+            confidence: 0.8,
+            quality: EvidenceQuality::None,
+            headline: format!(
+                "Construction requirement `{id}` is modelled by no Exegra claim (no claim has `models` naming it), so nothing establishes it."
+            ),
+        };
+    }
+    let not_verified: Vec<String> = claims
+        .iter()
+        .filter_map(|c| match model.exegra_verdicts.get(c).map(String::as_str) {
+            Some("verified") => None,
+            Some(v) => Some(format!("`{c}` is {v}")),
+            None => Some(format!("`{c}` has no result")),
+        })
+        .collect();
+    if not_verified.is_empty() {
+        Decision {
+            status: FindingStatus::Verified,
+            category: FindingCategory::Supported,
+            confidence: 0.85,
+            quality: EvidenceQuality::Strong,
+            headline: format!(
+                "Construction requirement `{id}` is established: every Exegra claim that models it is verified ({}).",
+                claims.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+            ),
+        }
+    } else {
+        Decision {
+            status: FindingStatus::Unverified,
+            category: FindingCategory::MissingEvidence,
+            confidence: 0.8,
+            quality: EvidenceQuality::Weak,
+            headline: format!(
+                "Construction requirement `{id}` is not established: {} in the Exegra results.",
+                not_verified.join("; ")
+            ),
+        }
     }
 }
 
@@ -638,6 +737,7 @@ fn title_for(status: FindingStatus, category: FindingCategory, claim: &Claim) ->
         (FindingStatus::Ambiguous, _) => "Ambiguous",
         (FindingStatus::Verified, _) => "Verified",
         (FindingStatus::Planned, _) => "Planned",
+        (FindingStatus::Operational, _) => "Operational",
         (FindingStatus::Unverified, c) if is_suspected(c) => "Possible contradiction",
         _ => "Unverified",
     };
@@ -700,6 +800,7 @@ pub fn proposals_for(
         )],
         FindingStatus::Planned => vec![p(NoActionNeeded, "The requirement's milestone is not started; add it to `[gate] started_milestones` when work begins.", false, &[].to_vec())],
         FindingStatus::Undocumented => vec![p(EstablishSpecification, "Specify the intended behavior so it can be checked.", true, &targets)],
+        FindingStatus::Operational => vec![p(NoActionNeeded, "Measured on a running deployment; record the measurement there, not in this repository.", false, &[].to_vec())],
         FindingStatus::Verified => vec![p(NoActionNeeded, "Evidence supports the claim.", false, &[].to_vec())],
     }
 }

@@ -152,6 +152,14 @@ pub fn run(input: &LintInput<'_>) -> Vec<LintFinding> {
         if r.retired {
             continue;
         }
+        // A hole is a rendered contract, not a hand-written statement: its ID is checked (R8)
+        // and nothing else.
+        if r.block
+            .attribute("Realisation")
+            .is_some_and(|a| a.value.trim().eq_ignore_ascii_case("hole"))
+        {
+            continue;
+        }
         r1_atomic(r, &mut sink);
         r2_vague(r, input, &mut sink);
         r3_internals(r, input, &mut sink);

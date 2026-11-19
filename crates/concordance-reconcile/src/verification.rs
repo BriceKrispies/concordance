@@ -28,7 +28,7 @@ use crate::structural::symbol_citation;
 use crate::text::{spec_citation, EvidenceBuilder};
 use crate::BatchContext;
 use concordance_core::code::{FactKind, Symbol, SymbolKind};
-use concordance_core::doc::{Authority, Claim, RequirementForm};
+use concordance_core::doc::{Authority, Claim, Realisation, RequirementForm};
 use concordance_core::evidence::{
     Dependency, Evidence, Method, MethodKind, Stance, Strength, StructuralCheck,
 };
@@ -660,6 +660,79 @@ pub fn proof_rule_findings(model: &Model, ctx: &BatchContext) -> Vec<Finding> {
                 locations,
                 authority,
             ));
+        }
+        // A hole (a hand-written contract) is implemented by exactly one item that declares
+        // `Implements: <ref>`.
+        let hole_attrs = claims
+            .iter()
+            .filter_map(|c| c.requirement.as_ref())
+            .map(|r| &r.attributes)
+            .find(|a| a.realisation_kind() == Realisation::Hole);
+        if let Some(attrs) = hole_attrs {
+            let implementers = model.implementers_of(&req);
+            if implementers.is_empty() && ctx.gate.attributes_started(attrs) {
+                let subject = FindingSubject::ProofRule {
+                    requirement: req.clone(),
+                    rule: "hole_unimplemented".into(),
+                    symbol: None,
+                };
+                let mut f = proof_finding(
+                    model,
+                    ctx,
+                    subject,
+                    (
+                        FindingStatus::Unverified,
+                        FindingCategory::MissingEvidence,
+                        Severity::Medium,
+                    ),
+                    format!("Hole `{req}` has no implementation"),
+                    format!(
+                        "`{req}` is a hand-written contract (a hole), but no indexed Rust item has the doc line `/// Implements: {req}`. Exactly one item must."
+                    ),
+                    (claim_ids.clone(), vec![]),
+                    spec_loc.clone(),
+                    authority,
+                );
+                f.limitations.clear();
+                out.push(f);
+            }
+            if implementers.len() > 1 {
+                let subject = FindingSubject::ProofRule {
+                    requirement: req.clone(),
+                    rule: "hole_duplicate".into(),
+                    symbol: None,
+                };
+                let names: Vec<String> = implementers
+                    .iter()
+                    .map(|p| format!("`{}`", p.qualified_name()))
+                    .collect();
+                let mut locations = spec_loc.clone();
+                locations.extend(implementers.iter().map(|p| p.range.clone()));
+                let mut f = proof_finding(
+                    model,
+                    ctx,
+                    subject,
+                    (
+                        FindingStatus::Ambiguous,
+                        FindingCategory::UnclearDocumentation,
+                        Severity::Medium,
+                    ),
+                    format!("Hole `{req}` has {} implementations", implementers.len()),
+                    format!(
+                        "{} items declare `Implements: {req}`: {}. A hole is implemented by exactly one item; drop the `Implements:` line from the rest.",
+                        implementers.len(),
+                        names.join(", ")
+                    ),
+                    (
+                        claim_ids.clone(),
+                        implementers.iter().map(|p| p.id.clone()).collect(),
+                    ),
+                    locations,
+                    authority,
+                );
+                f.limitations.clear();
+                out.push(f);
+            }
         }
         for p in proofs {
             for flaw in proof_flaws(model, p) {

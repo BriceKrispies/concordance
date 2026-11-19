@@ -390,3 +390,219 @@ fn one_requirement_id_in_one_document_is_not_a_duplicate() {
     )]);
     assert!(duplicate_id_findings(&model, langs).is_empty());
 }
+
+// ---- requirement realisation and holes (WG-4842) ----
+
+use crate::derive::claim_finding;
+use crate::verification::{claim_test_evidence, proof_rule_findings};
+use concordance_core::config::GateConfig;
+use concordance_core::evidence::Evidence;
+use concordance_core::finding::{Finding, FindingStatus, FindingSubject};
+use concordance_core::testrun::{RunBinding, TestOutcome, TestRun};
+use concordance_core::{ContentHash, Timestamp};
+
+fn ctx_with(gate: GateConfig) -> crate::BatchContext {
+    crate::BatchContext {
+        revision: concordance_core::Revision(1),
+        now: Timestamp(0),
+        changed_files: Vec::new(),
+        semantic_enabled: false,
+        languages: concordance_core::lang::Languages::new(vec![]),
+        gate,
+    }
+}
+
+/// A model of Rust `sources` and one Markdown specification `spec`.
+fn realisation_model(spec: &str, sources: &[(&str, &str)]) -> Model {
+    let mut model = model_of(sources);
+    let langs = concordance_core::lang::Languages::new(vec![]);
+    let rel = RepoPath::from_relative_str("docs/spec/r.md").unwrap();
+    let idx = concordance_markdown::index_document(&rel, spec, None, &langs);
+    let doc = idx.document.id.clone();
+    model.upsert_document(idx.document);
+    model.replace_sections(&doc, idx.sections);
+    for c in idx.claims {
+        model.upsert_claim(c);
+    }
+    model
+}
+
+fn passing(test: &str) -> TestRun {
+    TestRun {
+        path: "run.txt".into(),
+        modified: Timestamp(0),
+        content_hash: ContentHash::of_str(""),
+        results: [(test.to_string(), TestOutcome::Passed)]
+            .into_iter()
+            .collect(),
+        crates: Default::default(),
+        binding: RunBinding::Recorded,
+        changed_sources: 0,
+        changed_example: None,
+        changed_statements: Default::default(),
+    }
+}
+
+fn finding_of(model: &Model, req: &str, gate: GateConfig) -> Finding {
+    let claim = model.claims_of_requirement(req).next().expect("claim");
+    let doc = model.documents.get(&claim.document).expect("document");
+    let ctx = ctx_with(gate);
+    let evs: Vec<Evidence> = claim_test_evidence(model, claim, &ctx);
+    let refs: Vec<&Evidence> = evs.iter().collect();
+    claim_finding(model, claim, doc, &refs, &[], &ctx)
+}
+
+fn hole_rules(model: &Model, gate: GateConfig) -> Vec<String> {
+    proof_rule_findings(model, &ctx_with(gate))
+        .into_iter()
+        .filter_map(|f| match f.subject {
+            FindingSubject::ProofRule { rule, .. } if rule.starts_with("hole_") => Some(rule),
+            _ => None,
+        })
+        .collect()
+}
+
+const HOLE_SPEC: &str = "**H-012** The item implementing the projection SHALL satisfy its postconditions: it keeps every proposal.\n- Realisation: hole\n- Component: C-1\n";
+
+const HOLE_IMPL: &str = r#"
+pub struct Scenario;
+pub struct Proposal;
+
+/// Implements: H-012
+pub fn project(_scenario: &Scenario, _proposal: &Proposal, _keep: &mut dyn FnMut(u8, u8, u8) -> bool) {}
+"#;
+
+const HOLE_IMPL_TWICE: &str = r#"
+/// Implements: H-012
+pub fn project() {}
+
+/// Implements: H-012
+pub fn project_again() {}
+"#;
+
+const HOLE_TEST: &str = r#"
+use strata_simulation::project::{project, Proposal, Scenario};
+
+/// Verifies: H-012
+#[test]
+fn hole_postcondition() {
+    project(&Scenario, &Proposal, &mut |_, _, _| true);
+}
+"#;
+
+#[test]
+fn an_operational_requirement_without_code_is_operational_not_unverified() {
+    let spec = "**OPS-001** The deployment SHALL answer within 200 ms.\n- Realisation: operational\n- Milestone: 3\n";
+    let model = realisation_model(spec, &[]);
+    // Milestone 3 is not started: a checked requirement would be `planned`.
+    let gate = GateConfig {
+        started_milestones: Some(vec![1]),
+        ..Default::default()
+    };
+    let f = finding_of(&model, "OPS-001", gate.clone());
+    assert_eq!(f.status, FindingStatus::Operational, "{}", f.explanation);
+
+    let checked = "**OPS-002** The deployment SHALL answer within 200 ms.\n";
+    let f = finding_of(
+        &realisation_model(checked, &[]),
+        "OPS-002",
+        GateConfig::default(),
+    );
+    assert_eq!(f.status, FindingStatus::Unverified);
+}
+
+#[test]
+fn a_construction_requirement_is_verified_only_when_every_modelling_claim_is() {
+    let spec = "**CON-001** Generated code SHALL reject a stale write.\n- Realisation: construction\n- Modelled by: c-1, c-2\n";
+    let mut model = realisation_model(spec, &[]);
+    model
+        .exegra_verdicts
+        .insert("c-1".into(), "verified".into());
+    model
+        .exegra_verdicts
+        .insert("c-2".into(), "violated".into());
+    let f = finding_of(&model, "CON-001", GateConfig::default());
+    assert_eq!(f.status, FindingStatus::Unverified);
+    assert!(
+        f.explanation.contains("`c-2` is violated"),
+        "{}",
+        f.explanation
+    );
+    assert!(!f.explanation.contains("`c-1` is"), "{}", f.explanation);
+
+    model
+        .exegra_verdicts
+        .insert("c-2".into(), "verified".into());
+    let f = finding_of(&model, "CON-001", GateConfig::default());
+    assert_eq!(f.status, FindingStatus::Verified, "{}", f.explanation);
+
+    // A claim with no result in the Exegra results does not establish it either.
+    model.exegra_verdicts.remove("c-1");
+    let f = finding_of(&model, "CON-001", GateConfig::default());
+    assert_eq!(f.status, FindingStatus::Unverified);
+    assert!(
+        f.explanation.contains("`c-1` has no result"),
+        "{}",
+        f.explanation
+    );
+}
+
+#[test]
+fn a_hole_with_no_implementing_item_is_unimplemented() {
+    let model = realisation_model(HOLE_SPEC, &[]);
+    assert_eq!(
+        hole_rules(&model, GateConfig::default()),
+        vec!["hole_unimplemented"]
+    );
+    // Only the components that are started are expected to have code.
+    let gate = GateConfig {
+        started_components: Some(vec!["C-2".into()]),
+        ..Default::default()
+    };
+    assert!(hole_rules(&model, gate.clone()).is_empty());
+    assert_eq!(
+        finding_of(&model, "H-012", gate).status,
+        FindingStatus::Planned
+    );
+}
+
+#[test]
+fn a_hole_with_two_implementing_items_is_a_duplicate() {
+    let model = realisation_model(
+        HOLE_SPEC,
+        &[("crates/strata-simulation/src/project.rs", HOLE_IMPL_TWICE)],
+    );
+    assert_eq!(
+        hole_rules(&model, GateConfig::default()),
+        vec!["hole_duplicate"]
+    );
+}
+
+#[test]
+fn a_hole_with_one_item_and_a_passing_test_is_verified() {
+    let mut model = realisation_model(
+        HOLE_SPEC,
+        &[
+            ("crates/strata-simulation/src/project.rs", HOLE_IMPL),
+            ("crates/strata-simulation/tests/hole.rs", HOLE_TEST),
+        ],
+    );
+    assert!(hole_rules(&model, GateConfig::default()).is_empty());
+    model.test_runs = vec![passing("hole_postcondition")];
+    let f = finding_of(&model, "H-012", GateConfig::default());
+    assert_eq!(f.status, FindingStatus::Verified, "{}", f.explanation);
+}
+
+#[test]
+fn a_hole_whose_tests_pass_but_has_no_implementation_is_not_verified() {
+    let mut model = realisation_model(
+        HOLE_SPEC,
+        &[
+            ("crates/strata-simulation/src/project.rs", "pub struct Scenario;\npub struct Proposal;\npub fn project(_s: &Scenario, _p: &Proposal, _k: &mut dyn FnMut(u8, u8, u8) -> bool) {}\n"),
+            ("crates/strata-simulation/tests/hole.rs", HOLE_TEST),
+        ],
+    );
+    model.test_runs = vec![passing("hole_postcondition")];
+    let f = finding_of(&model, "H-012", GateConfig::default());
+    assert_eq!(f.status, FindingStatus::Unverified, "{}", f.explanation);
+}
