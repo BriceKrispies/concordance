@@ -69,6 +69,10 @@ struct Common {
     /// lines, or cargo-nextest output. May live outside the repository.
     #[arg(long = "test-results")]
     test_results: Vec<PathBuf>,
+    /// Exegra claim results (`exegra evaluate --json` output, repeatable) that establish
+    /// `construction` requirements.
+    #[arg(long = "exegra-verdicts")]
+    exegra_verdicts: Vec<PathBuf>,
     /// Enable semantic analysis through the local Claude Code CLI.
     #[arg(long, conflicts_with = "no_semantic")]
     semantic: bool,
@@ -224,6 +228,7 @@ fn load_config(c: &Common, host: Option<String>, port: Option<u16>) -> Result<Co
         src_roots: c.src_roots.clone(),
         state_dir: c.state_dir.clone(),
         test_results: c.test_results.clone(),
+        exegra_verdicts: c.exegra_verdicts.clone(),
         semantic: if c.semantic {
             Some(true)
         } else if c.no_semantic {
@@ -355,8 +360,8 @@ async fn serve(a: ServeArgs) -> ExitCode {
             match sub.next().await {
                 Next::Event(env) => match &env.event {
                     Event::ScanCompleted { counts, changed_files, revision, .. } => eprintln!(
-                        "revision {}: {} file(s) changed — {} violated, {} stale, {} ambiguous, {} unverified, {} planned, {} verified, {} undocumented",
-                        revision.0, changed_files, counts.violated, counts.stale, counts.ambiguous, counts.unverified, counts.planned, counts.verified, counts.undocumented
+                        "revision {}: {} file(s) changed — {} violated, {} stale, {} ambiguous, {} unverified, {} planned, {} operational, {} verified, {} undocumented",
+                        revision.0, changed_files, counts.violated, counts.stale, counts.ambiguous, counts.unverified, counts.planned, counts.operational, counts.verified, counts.undocumented
                     ),
                     Event::SystemWarning { message } => eprintln!("warning: {message}"),
                     Event::SystemError { message } => eprintln!("error: {message}"),

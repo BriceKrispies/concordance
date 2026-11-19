@@ -1,6 +1,7 @@
 //! Headless report: machine-readable JSON and human-readable text from one model.
 
 use concordance_core::config::GateConfig;
+use concordance_core::doc::Realisation;
 use concordance_core::finding::{Counts, Finding, FindingCategory, FindingStatus, FindingSubject};
 use concordance_core::virtual_doc::Origin;
 use concordance_core::{RepoPath, Revision, SourceRange};
@@ -51,6 +52,10 @@ pub struct ReportFinding {
     /// `Milestone:` of the requirement the finding is about, when it has a valid one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub milestone: Option<u32>,
+    /// `construction`, `operational` or `hole` for a requirement that is not an ordinary
+    /// `checked` one (a hole is a hand-written contract). Absent for a checked requirement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub realisation: Option<&'static str>,
     /// Parallel to `locations`: where each location in a virtual document was rendered from in
     /// its source file. Absent when no location is in a virtual document.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -114,12 +119,16 @@ pub struct Gate {
     pub unverified_requirements: usize,
 }
 
-/// Requirement IDs of started milestones whose obligation claims are not all `verified`.
+/// Requirement IDs that are started (a milestone or, for a hole, a component that is started)
+/// whose obligation claims are not all `verified`. An `operational` requirement is measured on
+/// a deployment and never counts here.
 fn unverified_requirements(m: &Model, gate: &GateConfig) -> usize {
     let mut verified: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
     for c in m.requirement_claims().filter(|c| c.is_obligation()) {
         let Some(r) = &c.requirement else { continue };
-        if !gate.is_started(r.attributes.milestone_number()) {
+        if !gate.attributes_started(&r.attributes)
+            || r.attributes.realisation_kind() == Realisation::Operational
+        {
             continue;
         }
         let ok = m.findings_for_claim(&c.id).any(|f| {
@@ -133,13 +142,34 @@ fn unverified_requirements(m: &Model, gate: &GateConfig) -> usize {
     verified.values().filter(|v| !**v).count()
 }
 
-/// The valid `Milestone:` of the requirement a finding's first claim belongs to.
-fn milestone_of(m: &Model, f: &Finding) -> Option<u32> {
+/// The requirement a finding's first claim belongs to.
+fn requirement_of<'a>(
+    m: &'a Model,
+    f: &Finding,
+) -> Option<&'a concordance_core::doc::RequirementRef> {
     f.claims
         .iter()
         .filter_map(|c| m.claims.get(c))
         .find_map(|c| c.requirement.as_ref())
-        .and_then(|r| r.attributes.milestone_number())
+}
+
+/// The valid `Milestone:` of the requirement a finding's first claim belongs to.
+fn milestone_of(m: &Model, f: &Finding) -> Option<u32> {
+    requirement_of(m, f).and_then(|r| r.attributes.milestone_number())
+}
+
+/// Whether the requirement a finding is about is started (a finding about no requirement is).
+fn started_of(m: &Model, f: &Finding, gate: &GateConfig) -> bool {
+    requirement_of(m, f).is_none_or(|r| gate.attributes_started(&r.attributes))
+}
+
+/// `construction`, `operational` or `hole`: how the finding's requirement is realised, when it
+/// is not an ordinary checked requirement.
+fn realisation_of(m: &Model, f: &Finding) -> Option<&'static str> {
+    match requirement_of(m, f)?.attributes.realisation_kind() {
+        Realisation::Checked => None,
+        other => Some(other.as_str()),
+    }
 }
 
 pub fn build(
@@ -167,7 +197,7 @@ pub fn build(
             .values()
             .filter(|f| {
                 f.is_open()
-                    && gate.is_started(milestone_of(m, f))
+                    && started_of(m, f, gate)
                     && f.status == FindingStatus::Violated
                     && cat.is_none_or(|c| f.category == c)
             })
@@ -177,7 +207,7 @@ pub fn build(
     let ignored_unstarted = m
         .findings
         .values()
-        .filter(|f| f.is_open() && !gate.is_started(milestone_of(m, f)))
+        .filter(|f| f.is_open() && !started_of(m, f, gate))
         .count();
     let proven = open_violated(Some(FindingCategory::StructuralContradiction))
         + open_violated(Some(FindingCategory::TestFailure));
@@ -246,6 +276,7 @@ pub fn build(
                     })
                     .collect(),
                 milestone: milestone_of(m, f),
+                realisation: realisation_of(m, f),
                 location_origins: origins_of(m, f),
                 finding: f.clone(),
             })
@@ -266,7 +297,7 @@ pub fn human(r: &Report, verbose: bool) -> String {
         "{} documents, {} claims ({} obligations), {} source files, {} symbols, {} relationships",
         c.documents, c.claims, c.obligation_claims, c.source_files, c.symbols, c.edges
     );
-    let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   planned {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.planned, c.verified, c.undocumented);
+    let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   planned {:>5}   operational {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.planned, c.operational, c.verified, c.undocumented);
     let _ = writeln!(out, "\n{}\n", r.semantic.coverage);
     if let Some(cs) = &r.citations {
         let _ = writeln!(out, "Citations (distinct): alias, found, resolved, by prefix, ambiguous, missing, bad lines, drifted, moved");
@@ -297,6 +328,7 @@ pub fn human(r: &Report, verbose: bool) -> String {
         FindingStatus::Undocumented,
         FindingStatus::Unverified,
         FindingStatus::Planned,
+        FindingStatus::Operational,
         FindingStatus::Verified,
     ];
     for status in order {
@@ -323,10 +355,12 @@ pub fn human(r: &Report, verbose: bool) -> String {
                 .first()
                 .map(|l| located(l, origin_at(0)))
                 .unwrap_or_default();
+            let mark = f.realisation.map(|r| format!(" ({r})")).unwrap_or_default();
             let _ = writeln!(
                 out,
-                "  [{}] {}",
+                "  [{}]{} {}",
                 f.finding.severity.as_str(),
+                mark,
                 f.finding.title
             );
             let _ = writeln!(

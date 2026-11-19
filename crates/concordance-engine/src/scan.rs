@@ -126,14 +126,31 @@ impl Engine {
         true
     }
 
-    /// Whether `p` is one of the configured test-run outputs.
+    /// Re-read the configured Exegra claim results. Returns whether they changed.
+    pub(crate) fn reload_exegra_verdicts(&mut self) -> bool {
+        let mut verdicts = std::collections::BTreeMap::new();
+        for p in &self.shared.config.exegra_verdicts {
+            if let Ok(text) = std::fs::read_to_string(p) {
+                verdicts.extend(crate::verdicts::parse(&text));
+            }
+        }
+        let mut m = self.shared.model.write().unwrap_or_else(|e| e.into_inner());
+        if m.exegra_verdicts == verdicts {
+            return false;
+        }
+        m.exegra_verdicts = verdicts;
+        true
+    }
+
+    /// Whether `p` is one of the configured test-run outputs or Exegra claim results.
     pub(crate) fn is_test_results(&self, p: &std::path::Path) -> bool {
-        crate::runs::watched_files(&self.shared.config.test_results)
-            .iter()
-            .any(|r| {
-                r.to_string_lossy()
-                    .eq_ignore_ascii_case(&p.to_string_lossy())
-            })
+        let config = &self.shared.config;
+        let mut watched = crate::runs::watched_files(&config.test_results);
+        watched.extend(config.exegra_verdicts.iter().cloned());
+        watched.iter().any(|r| {
+            r.to_string_lossy()
+                .eq_ignore_ascii_case(&p.to_string_lossy())
+        })
     }
     pub(crate) async fn scan(&mut self, force: bool, reason: ScanReason) {
         self.scan_counter += 1;
@@ -551,7 +568,7 @@ impl Engine {
         self.apply_chunk(&mut pending, buffer);
         // Test outcomes depend on the run files and on how fresh they are relative to the
         // sources, so they are re-read on every batch.
-        let tests_changed = self.reload_test_runs();
+        let tests_changed = self.reload_test_runs() | self.reload_exegra_verdicts();
         if tests_changed || !changed.is_empty() {
             let m = shared.model.read().unwrap_or_else(|e| e.into_inner());
             pending

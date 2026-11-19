@@ -8,7 +8,7 @@
 .badge-violated { color: var(--violated-fg); background: var(--violated-bg); border-color: var(--violated-bd); }
 .badge-stale { color: var(--stale-fg); background: var(--stale-bg); border-color: var(--stale-bd); }
 .badge-ambiguous { color: var(--ambiguous-fg); background: var(--ambiguous-bg); border-color: var(--ambiguous-bd); }
-.badge-unverified, .badge-planned, .badge-informative { color: var(--unverified-fg); background: var(--unverified-bg); border-color: var(--unverified-bd); }
+.badge-unverified, .badge-planned, .badge-operational, .badge-informative { color: var(--unverified-fg); background: var(--unverified-bg); border-color: var(--unverified-bd); }
 .badge-verified { color: var(--verified-fg); background: var(--verified-bg); border-color: var(--verified-bd); }
 .badge-undocumented, .pill-undocumented { color: var(--undocumented-fg); background: var(--undocumented-bg); border-color: var(--undocumented-bd); }
 a.badge { text-decoration: none; }

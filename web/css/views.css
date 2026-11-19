@@ -16,7 +16,7 @@
 .tile-violated { background: var(--violated-bg); color: var(--violated-fg); border-color: var(--violated-bd); }
 .tile-stale { background: var(--stale-bg); color: var(--stale-fg); border-color: var(--stale-bd); }
 .tile-ambiguous { background: var(--ambiguous-bg); color: var(--ambiguous-fg); border-color: var(--ambiguous-bd); }
-.tile-planned, .tile-unverified { background: var(--unverified-bg); color: var(--unverified-fg); border-color: var(--unverified-bd); }
+.tile-planned, .tile-operational, .tile-unverified { background: var(--unverified-bg); color: var(--unverified-fg); border-color: var(--unverified-bd); }
 .tile-verified { background: var(--verified-bg); color: var(--verified-fg); border-color: var(--verified-bd); }
 .tile-undocumented { background: var(--undocumented-bg); color: var(--undocumented-fg); border-color: var(--undocumented-bd); }
 .drift { list-style: none; padding: 0; margin: 0 0 var(--space-3); }

@@ -20,6 +20,7 @@ pub mod runs;
 mod scan;
 mod semantic;
 pub mod source;
+pub mod verdicts;
 pub mod virtuals;
 mod watch;
 
