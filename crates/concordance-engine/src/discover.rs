@@ -154,7 +154,7 @@ impl PathFilter {
             .gitignore
             .matched_path_or_any_parents(rel.as_str(), false)
             .is_ignore()
-            || self.ignored_below_root(&rel)
+            || self.ignored_below_root(rel)
         {
             return false;
         }

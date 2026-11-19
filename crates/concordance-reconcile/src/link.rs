@@ -18,8 +18,7 @@ fn edge(
     from: &NodeRef,
     text: &str,
     to: Option<NodeRef>,
-    resolution: Resolution,
-    confidence: f32,
+    (resolution, confidence): (Resolution, f32),
     cfg: Vec<String>,
     origin: Option<SourceRange>,
 ) -> Edge {
@@ -83,8 +82,7 @@ pub fn reference_edge(
                         from,
                         &r.text,
                         Some(NodeRef::File(file)),
-                        Resolution::Exact,
-                        1.0,
+                        (Resolution::Exact, 1.0),
                         vec![],
                         origin,
                     ));
@@ -102,8 +100,7 @@ pub fn reference_edge(
                 from,
                 &r.text,
                 to.map(NodeRef::Symbol),
-                res,
-                conf,
+                (res, conf),
                 cfg,
                 origin,
             ))
@@ -147,8 +144,7 @@ pub fn reference_edge(
                 from,
                 &r.text,
                 to,
-                res,
-                conf,
+                (res, conf),
                 vec![],
                 origin,
             ))
@@ -180,8 +176,7 @@ pub fn reference_edge(
                 from,
                 &r.text,
                 to,
-                res,
-                conf,
+                (res, conf),
                 vec![],
                 origin,
             ))
@@ -244,8 +239,7 @@ pub fn claim_edges(
                 &from,
                 &text,
                 target,
-                res,
-                conf,
+                (res, conf),
                 vec![],
                 Some(claim.range.clone()),
             ));
@@ -258,8 +252,7 @@ pub fn claim_edges(
                 &from,
                 &req.id,
                 Some(NodeRef::Symbol(t.id.clone())),
-                Resolution::Exact,
-                1.0,
+                (Resolution::Exact, 1.0),
                 t.cfg.clone(),
                 Some(claim.range.clone()),
             ));
@@ -282,8 +275,7 @@ pub fn claim_edges(
                 &from,
                 &name,
                 Some(to),
-                Resolution::Lexical,
-                score,
+                (Resolution::Lexical, score),
                 cfg,
                 None,
             ));
@@ -345,8 +337,7 @@ pub fn symbol_edges(model: &Model, sym: &Symbol) -> Vec<Edge> {
             &from,
             &text,
             Some(NodeRef::Symbol(to)),
-            res,
-            conf,
+            (res, conf),
             cfg,
             Some(call.range.clone()),
         ));
@@ -368,8 +359,7 @@ pub fn symbol_edges(model: &Model, sym: &Symbol) -> Vec<Edge> {
                         &from,
                         tp,
                         Some(NodeRef::Symbol(id)),
-                        Resolution::UniqueSuffix,
-                        0.9,
+                        (Resolution::UniqueSuffix, 0.9),
                         vec![],
                         Some(sym.range.clone()),
                     ));

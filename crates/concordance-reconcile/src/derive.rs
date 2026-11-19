@@ -233,7 +233,7 @@ pub fn claim_finding(
     } else if vague
         && sem_verdict != Some("agrees")
         && sem_verdict != Some("disagrees")
-        && !(structurally_checkable(claim) && !strong_support.is_empty())
+        && (!structurally_checkable(claim) || strong_support.is_empty())
     {
         Decision {
             status: FindingStatus::Ambiguous,

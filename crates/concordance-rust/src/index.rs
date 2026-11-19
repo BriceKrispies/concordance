@@ -323,7 +323,7 @@ fn is_punct(t: Option<&TokenTree>, c: char) -> bool {
 }
 
 fn is_ident(t: Option<&TokenTree>, word: &str) -> bool {
-    matches!(t, Some(TokenTree::Ident(i)) if i.to_string() == word)
+    matches!(t, Some(TokenTree::Ident(i)) if *i == word)
 }
 
 fn is_group(t: Option<&TokenTree>, delim: Delimiter) -> bool {

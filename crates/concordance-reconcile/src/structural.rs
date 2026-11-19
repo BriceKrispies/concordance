@@ -194,7 +194,7 @@ pub fn claim_evidence(
                         &b(StructuralCheck::CitationPath),
                         r,
                         vec![spec],
-                        &[cdep.clone()],
+                        std::slice::from_ref(&cdep),
                     ));
                 }
             }
@@ -209,7 +209,7 @@ pub fn claim_evidence(
             r,
             e,
             spec_citation(claim, r.range.as_ref()),
-            &[cdep.clone()],
+            std::slice::from_ref(&cdep),
         ) {
             out.push(ev);
         }

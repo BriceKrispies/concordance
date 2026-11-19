@@ -33,6 +33,9 @@ struct Target {
     rendered: Option<Arc<VirtualDoc>>,
 }
 
+/// The files of one parse batch with what parsing each produced.
+type ParsedBatch = Vec<(RepoPath, FileKind, Result<Option<Parsed>, String>)>;
+
 /// What the model currently knows about a path (to skip unchanged files).
 #[derive(Clone)]
 struct Known {
@@ -478,17 +481,14 @@ impl Engine {
             .map(|n| n.get())
             .unwrap_or(4)
             .clamp(1, 8);
-        let chunk = ((targets.len() / (workers * 4)).max(1)).min(64);
+        let chunk = (targets.len() / (workers * 4)).clamp(1, 64);
         let mut set = tokio::task::JoinSet::new();
         let mut queue: std::collections::VecDeque<Vec<Target>> = std::collections::VecDeque::new();
         let mut iter = targets.into_iter().peekable();
         while iter.peek().is_some() {
             queue.push_back(iter.by_ref().take(chunk).collect());
         }
-        let spawn = |set: &mut tokio::task::JoinSet<
-            Vec<(RepoPath, FileKind, Result<Option<Parsed>, String>)>,
-        >,
-                     batch: Vec<Target>| {
+        let spawn = |set: &mut tokio::task::JoinSet<ParsedBatch>, batch: Vec<Target>| {
             let known = known.clone();
             let rules = rules.clone();
             let ws = ws_for_parse.clone();

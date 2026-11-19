@@ -289,7 +289,7 @@ fn realisation_models_and_holes_are_rendered() {
 
 #[test]
 fn a_hole_no_section_places_is_reported() {
-    let text = REALISATION.replace("\n{{entity:h-1}}", "");
+    let text = REALISATION.replace("\\n{{entity:h-1}}", "");
     let x = expand("s.jsonc", &text).unwrap();
     assert!(
         x.diagnostics
