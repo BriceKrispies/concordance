@@ -31,7 +31,7 @@ A bold-ID requirement may carry attribute bullets directly after it (`Verify:`, 
 claims, and `concordance lint` checks them: see [spec-lint.md](spec-lint.md).
 
 An ID is an upper-case prefix, optional upper-case/digit segments, and a number of one to four digits
-with an optional dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`, `B-5`. The number may carry a
+with an optional dotted sub-number: `PSS-003`, `LANG-006.3`, `WEB-SEC-004`, `B-5`, `H-012`. The number may carry a
 one- or two-letter tag (`PII-T1`, `AI-R3`). `concordance lint` uses this same grammar (R8 reports an ID
 that does not match it). IDs are recognised only where they are defined (bold opener or heading) and
 where a test declares them, so similar-looking keys in prose (`PROJ-2147`) are not requirements. The
@@ -93,6 +93,8 @@ this order:
 | `rationale` | `- Rationale: <rationale>` |
 | `milestone` | `- Milestone: <n>` |
 | `seam` | `- Seam: <n>` |
+| `realisation` | `- Realisation: <value>` (see [Realisation](#realisation)) |
+| claims whose `models` names this requirement (by entity id or `ref`) | `- Modelled by: <claim id>, <claim id>` |
 
 A requirement without `ref` or `statement` is an error: its marker stays in the text. A reference to an
 entity that does not exist (or has no `ref`) is a warning, and the id is written instead.
@@ -122,6 +124,62 @@ than one marker, a reference that does not resolve, a `casesPath`) are reported 
 --exegra-results FILE` write each requirement's `pass`/`fail` result and the lint findings by entity
 id, in a file Exegra reads. See [cli.md](cli.md#exegra-results).
 
+## Realisation
+
+A requirement says how it is realised, with `Realisation: construction | checked | operational` (in an
+Exegra source, the claim's `realisation`). Absent or unrecognised means `checked`.
+
+| Realisation | Established by | Status |
+|---|---|---|
+| `checked` | Hand-written code and tests that declare `Verifies:` (everything above). | As before. |
+| `construction` | Generated code guarantees it. Every Exegra claim whose `models` names the requirement must be `verified` in the Exegra claim results. | `verified` when all of them are; otherwise `unverified`, and the finding names each claim that is not (`c-2` is violated, `c-1` has no result). A construction requirement no claim models is `unverified` and says so. Tests are not consulted; a recorded violation still gives `violated`. |
+| `operational` | A measurement on a running deployment (budgets, deployment and operations requirements). Nothing in this repository is expected to establish it. | `operational`: never `unverified` or `planned` for lack of code or tests, whatever its milestone, and never counted by `--fail-on unverified`. A failing test or a structural contradiction is still `violated`. |
+
+The Exegra claim results are the JSON that `exegra evaluate --json` prints
+(`{"result": {"results": [{"claimId": "...", "status": "verified"}]}}`; a bare `{"results": [...]}`, a
+top-level array and a `{"claims": {"<id>": {"status": ...}}}` map are read too). Name the files with
+`exegra_verdicts = ["exegra-claims.json"]` in `concordance.toml` or `--exegra-verdicts FILE` (repeatable).
+Only the status `verified` counts; `supported`, `inconclusive`, `not-evaluated` and a missing claim do not.
+The files are re-read on every scan and watched like the test results. This is a different file from
+`--exegra-results`, which Concordance writes for Exegra.
+
+The gate treats the groups consistently: `--fail-on proven` and `violated` look only at violations
+(`operational` is not one); `--fail-on unverified` counts every started requirement that is not `verified`,
+`construction` ones included, and never an `operational` one. The scan JSON carries `counts.operational`, and
+each finding of a `construction`, `operational` or `hole` requirement carries `findings[].realisation`; the
+text report writes it in parentheses before the title.
+
+## Holes
+
+A contract with `realisation: "hand"` and a `ref` such as `H-012` (the ID grammar is the one above: prefix
+letters, one to four digits, optional dotted sub-number) is a **hole**: hand-written code that fills a place
+the generated code leaves open. In an Exegra source a hole is placed with a `{{entity:<contract id>}}` marker
+like a requirement (a hole no section places is an error, as for a requirement) and rendered as
+
+```markdown
+**H-012** The item implementing <name> SHALL satisfy its postconditions: <postconditions>
+- Realisation: hole
+- Component: <ref of implementedBy>
+- Milestone: <n>          (only when the contract has a `milestone`)
+```
+
+so it is a requirement for verification, and the Markdown form works without Exegra. Spec lint reports only R8
+(identifiers) on a hole; the postcondition text is not held to R1 to R5.
+
+- **One implementation.** Exactly one indexed Rust item must have the line `/// Implements: H-012` in its doc
+  comment (several refs may follow one `Implements:`, comma separated). No item gives the `unverified` finding
+  `hole_unimplemented` (subject `proof_rule`); two or more give the `ambiguous` finding `hole_duplicate`, listing
+  them. Items of other languages are not counted.
+- **Postconditions.** They are verified by tests carrying `/// Verifies: H-012`, exactly like a requirement
+  (recording, freshness and proof rules included). A hole whose tests pass but which has no single
+  implementing item is `unverified`, not `verified`.
+- **When code is expected.** A contract carries no milestone in the Exegra format, so the milestone rule is used
+  when the contract has one (`Milestone:`, gated by `started_milestones`), and otherwise the component named by
+  `implementedBy` decides: with `[gate] started_components = ["C-1"]` only the holes of the listed components
+  (their `ref`) are expected to have code. Holes of other components are `planned`, produce no
+  `hole_unimplemented`, and are left out of the gate. Without `started_components`, every hole is expected.
+  With `started_components` set, a hole with no `Component:` is not started.
+
 ## Milestones
 
 `Milestone: N` names the milestone at which a requirement is first verified; `Seam: M` (with `M <= N`)
@@ -141,6 +199,9 @@ With `started_milestones` set:
   failing test; the gate counts them as `ignored_unstarted`;
 - a requirement with no `Milestone:` (or one that is not a positive integer) counts as started;
 - without `started_milestones`, nothing is planned.
+
+An `operational` requirement is never `planned`; a hole follows the milestone rule when it has a `Milestone:`
+and `[gate] started_components` otherwise (see [Holes](#holes)).
 
 The scan JSON carries `counts.planned`, `findings[].status = "planned"` and `findings[].milestone`
 (the requirement's milestone, when it has a valid one). The requirement's claims carry the raw

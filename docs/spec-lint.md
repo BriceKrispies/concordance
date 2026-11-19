@@ -40,7 +40,11 @@ engine rendered. Rules, `[authority]` globs, `[lint] whitepaper` and `[lint] spe
 document under its `path` exactly as to a file, because the rendered text is in the formats below:
 
 - a requirement is `**<ref>** <statement>` followed by `Status:`, `Verify:`, `Cases:`, `Boundary:`,
-  `Traces:`, `Depends:`, `Rationale:`, `Milestone:`, `Seam:` bullets for the properties present;
+  `Traces:`, `Depends:`, `Rationale:`, `Milestone:`, `Seam:`, `Realisation:` and `Modelled by:` bullets for the
+  properties present;
+- a contract with `realisation: "hand"` and a `ref` (a hole, see [requirements.md](requirements.md#holes)) is
+  rendered as a requirement with `Realisation: hole` and a `Component:` bullet. Lint reads it for R8 only: its
+  statement is generated, so R1 to R5 do not apply;
 - a `claims[]` entity whose `kind` is a misspelling of `requirement` (`Requirement`, `requirment`) is
   rendered as prose and reported as rule `R0` (an error at the entity), since no requirement rule
   would read it;
@@ -64,7 +68,7 @@ document under its `path` exactly as to a file, because the rendered text is in 
 ```
 
 The list items directly after the opener that start with `Verify:`, `Boundary:`, `Traces:`,
-`Rationale:`, `Depends:`, `Status:`, `Cases:`, `Milestone:` or `Seam:` are the requirement's attributes. They are stored on the
+`Rationale:`, `Depends:`, `Status:`, `Cases:`, `Milestone:`, `Seam:`, `Realisation:`, `Component:` or `Modelled by:` are the requirement's attributes. They are stored on the
 requirement (`RequirementRef.attributes` on its claims) and are not extracted as claims. Other list
 items under a requirement are ordinary prose and fall under R7. A requirement with `Status: retired`
 is only checked by R8. A requirement opener on the line after an attribute bullet, with no blank line
@@ -233,6 +237,10 @@ a table is a case added, with no change to the requirement.
 - A Lean theorem that states `True`: a violated finding with `rule = trivial_statement`; one that mentions,
   directly or through the definitions and theorems it names, an `axiom` declared in the repository: an
   ambiguous, low-severity finding with `rule = uses_axiom`.
+- A hole (`Realisation: hole`, see [requirements.md](requirements.md#holes)) with no indexed Rust item whose doc
+  comment has the line `Implements: <ref>`, when the hole is started: an `unverified` finding with
+  `rule = hole_unimplemented`. A hole with more than one such item: an ambiguous, medium-severity finding with
+  `rule = hole_duplicate`, listing the items.
 - A passing result of a proof reported by any of these rules does not verify its requirement: the requirement
   stays `unverified` and says why.
 

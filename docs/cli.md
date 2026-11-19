@@ -13,6 +13,7 @@ concordance record [common]                         # bind the test-results file
 common: --repo PATH  --spec-root PATH (repeatable)  --src-root PATH (repeatable)
         --config FILE  --state-dir DIR  --semantic | --no-semantic  --model ALIAS
         --test-results FILE (repeatable; see docs/requirements.md)
+        --exegra-verdicts FILE (repeatable; see docs/requirements.md#realisation)
 ```
 
 Roots may be absolute or relative to the repository. A `--spec-root` may name a single file, for
@@ -41,7 +42,9 @@ roots is a TypeScript package.
 
 `unverified`, `planned`, `ambiguous`, `stale` and `undocumented` findings never fail the gate under `proven`
 or `violated`: they are not violations. Under `--fail-on unverified` a requirement of a started milestone that is
-not `verified` fails it, whatever its status. With `[gate] started_milestones`, findings of requirements whose `Milestone:` is not started are
+not `verified` fails it, whatever its status. An `operational` requirement is never counted there (it is measured on a
+deployment, not by this repository), and a hole counts like a requirement: it is started when its milestone is, or,
+with no milestone, when its component is (see [requirements.md](requirements.md#holes)). With `[gate] started_milestones`, findings of requirements whose `Milestone:` is not started are
 left out of the gate entirely (`gate.ignored_unstarted` counts them); see [requirements.md](requirements.md#milestones).
 Missing Claude is never treated as successful semantic verification. The report's
 `semantic.coverage` field states exactly what was and was not assessed.
@@ -54,6 +57,7 @@ Missing Claude is never treated as successful semantic verification. The report'
 | `violated` | Contradicted: a structural contradiction (a dangling reference, a differing signature, a constant outside a documented bound, an unsafe or panic site where the claim forbids one, a forbidden dependency), a failing test, a proof-rule breach, or a semantic contradiction that survived a challenge. Its `category` says which. |
 | `unverified` | Nothing establishes the claim either way. This includes a requirement no test declares `Verifies:` for, a passing test whose proof is reported (bypasses the boundary, calls no indexed code, states `True`, rests on an axiom), a test in a file no crate target compiles, and a suspected contradiction that has not been confirmed. |
 | `planned` | An `unverified` requirement whose milestone is not in `[gate] started_milestones`. A requirement with evidence keeps its own status. |
+| `operational` | A requirement with `Realisation: operational`: measured on a running deployment, so no code or test here is expected to establish it. Never unverified, never planned, never in the gate. A recorded violation (a failing test, a structural contradiction) is still reported as `violated`. |
 | `stale` | Evidence the status rests on was invalidated and not re-established (semantic evidence after a change; a test result whose results file is unrecorded or was recorded against other sources or other requirement text: run the tests and `concordance record` again), or cited code changed at the `compare` revision (`citation_drift`). Never a gate failure. |
 | `ambiguous` | The claim cannot be read one way: vague or self-contradictory wording, conflicting bounds, a requirement declared by more than one proof, or a semantic `ambiguous` verdict. |
 | `undocumented` | Implementation behaviour (panics, error returns, environment reads, missing contract on public API) that no claim covers. Reported as `missing_documentation`. |
