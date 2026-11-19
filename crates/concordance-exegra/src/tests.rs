@@ -251,3 +251,51 @@ fn a_misspelt_requirement_kind_is_reported_not_rendered_silently() {
     assert!(!super::is_misspelling_of_requirement("requirement"));
     assert!(!super::is_misspelling_of_requirement("note"));
 }
+
+const REALISATION: &str = r##"{
+  "exegra": "0.1",
+  "documents": [{"id":"d","path":"spec/r.md","role":"requirements"}],
+  "sections": [{"id":"s","title":"R","level":1,"document":"d","order":1,"body":"{{entity:r-con}}\n{{entity:r-ops}}\n{{entity:h-1}}\n"}],
+  "components": [{"id":"comp-1","ref":"C-1","name":"Store","purpose":"p","talksTo":""}],
+  "claims": [
+    {"id":"r-con","kind":"requirement","ref":"CON-001","statement":"Generated code SHALL reject a stale write.","realisation":"construction"},
+    {"id":"r-ops","kind":"requirement","ref":"OPS-001","statement":"The service SHALL answer within 200 ms.","realisation":"operational"},
+    {"id":"m-1","kind":"invariant","statement":"x","models":"r-con"},
+    {"id":"m-2","kind":"invariant","statement":"y","models":["r-con"]}
+  ],
+  "contracts": [
+    {"id":"h-1","ref":"H-012","name":"Projection","realisation":"hand","implementedBy":"comp-1","postconditions":["keeps every proposal"]},
+    {"id":"g-1","ref":"CT-001","name":"Generated","realisation":"generated"}
+  ]
+}
+"##;
+
+#[test]
+fn realisation_models_and_holes_are_rendered() {
+    let x = expand("s.jsonc", REALISATION).unwrap();
+    let t = &doc(&x, "spec/r.md").text;
+    assert!(t.contains("**CON-001** Generated code SHALL reject a stale write.\n- Realisation: construction\n- Modelled by: m-1, m-2\n"), "{t}");
+    assert!(
+        t.contains(
+            "**OPS-001** The service SHALL answer within 200 ms.\n- Realisation: operational\n"
+        ),
+        "{t}"
+    );
+    assert!(t.contains("**H-012** The item implementing Projection SHALL satisfy its postconditions: keeps every proposal\n- Realisation: hole\n- Component: C-1\n"), "{t}");
+    // A hole is not an Exegra claim, so it has no entry for results.
+    assert!(!x.requirements.contains_key("H-012"));
+    assert!(x.diagnostics.is_empty(), "{:?}", x.diagnostics);
+}
+
+#[test]
+fn a_hole_no_section_places_is_reported() {
+    let text = REALISATION.replace("\n{{entity:h-1}}", "");
+    let x = expand("s.jsonc", &text).unwrap();
+    assert!(
+        x.diagnostics
+            .iter()
+            .any(|d| d.kind == DiagnosticKind::UnplacedEntity && d.entity == "h-1"),
+        "{:?}",
+        x.diagnostics
+    );
+}

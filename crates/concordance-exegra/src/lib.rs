@@ -29,7 +29,7 @@ use std::fmt;
 
 /// Bump when the rendered text or the origin mapping changes for identical input (forces
 /// re-indexing).
-pub const EXTRACTOR_VERSION: &str = "exegra-1";
+pub const EXTRACTOR_VERSION: &str = "exegra-2";
 
 /// Why a whole file could not be expanded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -287,7 +287,7 @@ pub(crate) fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 /// Top-level arrays whose entries are entities a marker can name.
-const ENTITY_LISTS: [&str; 14] = [
+const ENTITY_LISTS: [&str; 15] = [
     "documents",
     "sections",
     "caseTables",
@@ -302,6 +302,7 @@ const ENTITY_LISTS: [&str; 14] = [
     "releaseStages",
     "milestones",
     "terms",
+    "contracts",
 ];
 
 const MARKER_PREFIX: &str = "{{entity:";
@@ -436,7 +437,28 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
         }
     }
 
-    let ctx = render::Ctx { by_id: &by_id };
+    // Requirement entity id -> claims whose `models` names it (a string or a list of ids).
+    let mut modelled_by: HashMap<String, Vec<String>> = HashMap::new();
+    for e in lists.get("claims").unwrap_or(&empty) {
+        let Some(cid) = str_of(e.value, "id").filter(|i| !i.is_empty()) else {
+            continue;
+        };
+        let targets: Vec<&str> = match e.value.get("models") {
+            Some(Value::String(s)) => vec![s.as_str()],
+            Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).collect(),
+            _ => vec![],
+        };
+        for t in targets {
+            let v = modelled_by.entry(t.to_string()).or_default();
+            if !v.iter().any(|x| x == cid) {
+                v.push(cid.to_string());
+            }
+        }
+    }
+    let ctx = render::Ctx {
+        by_id: &by_id,
+        modelled_by: &modelled_by,
+    };
     let mut out = Expansion::default();
     let mut seen_paths: HashMap<String, String> = HashMap::new();
     // Ids that a marker in a rendered section names.
@@ -542,6 +564,25 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
                 line: e.line,
                 message: format!(
                     "requirement `{id}` is in no section body, so it is not rendered and nothing checks it; place its marker `{{{{entity:{id}}}}}` in a section"
+                ),
+            });
+        }
+    }
+    // A hole that no rendered section places is in no document: nothing checks it.
+    for e in lists.get("contracts").unwrap_or(&empty) {
+        if !render::is_hole(e) {
+            continue;
+        }
+        let Some(id) = str_of(e.value, "id").filter(|i| !i.is_empty()) else {
+            continue;
+        };
+        if !placed.contains(id) {
+            diagnostics.push(Diagnostic {
+                kind: DiagnosticKind::UnplacedEntity,
+                entity: id.to_string(),
+                line: e.line,
+                message: format!(
+                    "hole `{id}` is in no section body, so it is not rendered and nothing checks that it is implemented; place its marker `{{{{entity:{id}}}}}` in a section"
                 ),
             });
         }

@@ -13,6 +13,8 @@ use std::collections::HashMap;
 /// Lookup of entities by id, for markers and references.
 pub(crate) struct Ctx<'a> {
     pub by_id: &'a HashMap<&'a str, Entity<'a>>,
+    /// Requirement entity id -> ids of the claims whose `models` names it, in file order.
+    pub modelled_by: &'a HashMap<String, Vec<String>>,
 }
 
 pub(crate) enum Block {
@@ -42,6 +44,7 @@ pub(crate) fn entity(
 ) -> Option<Rendered> {
     match e.list {
         "claims" if str_of(e.value, "kind") == Some("requirement") => requirement(e, ctx, diags),
+        "contracts" if is_hole(e) => hole(e, ctx, diags),
         "goals" | "nonGoals" | "constraints" | "openQuestions" | "decisions" => item(e, diags),
         "terms" => term(e, diags),
         "milestones" => match lines_of(e, "detail") {
@@ -272,9 +275,89 @@ fn requirement(e: &Entity<'_>, ctx: &Ctx<'_>, diags: &mut Vec<Diagnostic>) -> Op
     if let Some(s) = number_text(e, "seam") {
         lines.push(format!("- Seam: {s}"));
     }
+    if let Some(x) = text_of(e, "realisation") {
+        lines.push(format!("- Realisation: {x}"));
+    }
+    let mut modelling: Vec<&str> = Vec::new();
+    for key in [id_of(e), r.as_str()] {
+        for c in ctx.modelled_by.get(key).into_iter().flatten() {
+            if !modelling.contains(&c.as_str()) {
+                modelling.push(c);
+            }
+        }
+    }
+    if !modelling.is_empty() {
+        lines.push(format!("- Modelled by: {}", modelling.join(", ")));
+    }
     Some(Rendered {
         block: Block::Lines(lines),
         requirement_ref: Some(r),
+    })
+}
+
+/// A contract that is a hole: `realisation` is `hand` and it has a `ref`.
+pub(crate) fn is_hole(e: &Entity<'_>) -> bool {
+    e.list == "contracts"
+        && str_of(e.value, "realisation") == Some("hand")
+        && text_of(e, "ref").is_some()
+}
+
+/// The text of one postcondition: a string (the id of an entity with a `statement`, or text),
+/// or an object with `statement`, `text` or `description`.
+fn postcondition(ctx: &Ctx<'_>, v: &Value) -> Option<String> {
+    let text = match v {
+        Value::String(s) => match ctx
+            .by_id
+            .get(s.as_str())
+            .and_then(|t| text_of(t, "statement"))
+        {
+            Some(t) => t,
+            None => one_line(s),
+        },
+        Value::Object(_) => ["statement", "text", "description"]
+            .iter()
+            .find_map(|k| v.get(*k).and_then(Value::as_str))
+            .map(one_line)?,
+        _ => return None,
+    };
+    (!text.is_empty()).then_some(text)
+}
+
+/// A hole: a hand-written contract, rendered as a requirement `**<ref>** ...` that its
+/// postconditions state, with `Realisation: hole` and the component that implements it.
+fn hole(e: &Entity<'_>, ctx: &Ctx<'_>, diags: &mut Vec<Diagnostic>) -> Option<Rendered> {
+    let r = text_of(e, "ref")?;
+    let posts: Vec<String> = e
+        .value
+        .get("postconditions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|v| postcondition(ctx, v))
+        .collect();
+    let name = text_of(e, "name").unwrap_or_else(|| id_of(e).to_string());
+    let statement = if posts.is_empty() {
+        format!("The item implementing {name} SHALL satisfy its contract.")
+    } else {
+        format!(
+            "The item implementing {name} SHALL satisfy its postconditions: {}",
+            posts.join(" ")
+        )
+    };
+    let mut lines = vec![
+        format!("**{r}** {statement}"),
+        "- Realisation: hole".to_string(),
+    ];
+    if let Some(c) = text_of(e, "implementedBy") {
+        let c = reference(e, ctx, diags, "implementedBy", &c);
+        lines.push(format!("- Component: {c}"));
+    }
+    if let Some(m) = number_text(e, "milestone") {
+        lines.push(format!("- Milestone: {m}"));
+    }
+    Some(Rendered {
+        block: Block::Lines(lines),
+        requirement_ref: None,
     })
 }
 
