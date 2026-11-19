@@ -35,12 +35,14 @@
 //!
 //! [gate]                          # milestone gating (see docs/requirements.md)
 //! started_milestones = [1, 2]      # requirements of other milestones scan as `planned`
+//! started_components = ["COMP-1"]  # holes with no milestone are expected only for these components
 //!
 //! [server]
 //! host = "127.0.0.1"
 //! port = 4173
 //!
 //! test_results = ["ci/test-output.txt"]  # libtest output (text or JSON lines); --test-results overrides
+//! exegra_verdicts = ["exegra-claims.json"]  # `exegra evaluate --json` output; --exegra-verdicts overrides
 //!
 //! [repos.APP]                      # `[APP:path:lines]` citations point into this git repository
 //! path = "../platform"   # relative to the config file
@@ -68,6 +70,10 @@ pub struct ConfigFile {
     /// paths resolve against the config file's directory. They may live outside the repo.
     #[serde(default)]
     pub test_results: Vec<PathBuf>,
+    /// Exegra claim results (`exegra evaluate --json` output) that establish `construction`
+    /// requirements. Relative paths resolve against the config file's directory.
+    #[serde(default)]
+    pub exegra_verdicts: Vec<PathBuf>,
     #[serde(default)]
     pub authority: AuthorityRules,
     #[serde(default)]
@@ -156,6 +162,9 @@ pub struct ForbiddenTerm {
 pub struct GateFile {
     /// Milestones that are started. Unset: every requirement counts as started.
     pub started_milestones: Option<Vec<u32>>,
+    /// Components whose holes (hand-written contracts) are expected to have code. Unset: every
+    /// hole without a milestone counts as started.
+    pub started_components: Option<Vec<String>>,
 }
 
 /// Resolved `[gate]` settings.
@@ -164,9 +173,29 @@ pub struct GateConfig {
     /// `None`: no gating. `Some`: a requirement whose `Milestone:` is not listed is `planned`;
     /// a requirement without a `Milestone:` is started.
     pub started_milestones: Option<Vec<u32>>,
+    /// `None`: every hole counts as started (unless its milestone is not). `Some`: a hole with
+    /// no `Milestone:` is started only when its `Component:` is listed.
+    pub started_components: Option<Vec<String>>,
 }
 
 impl GateConfig {
+    /// Whether a requirement (or hole) with these attributes is started. A valid `Milestone:`
+    /// decides first; a hole without one is decided by its `Component:`; anything else is started.
+    pub fn attributes_started(&self, a: &crate::doc::RequirementAttributes) -> bool {
+        if let Some(m) = a.milestone_number() {
+            return self.is_started(Some(m));
+        }
+        let is_hole = a.realisation_kind() == crate::doc::Realisation::Hole;
+        match (&self.started_components, is_hole, a.component.as_deref()) {
+            (Some(list), true, Some(c)) => {
+                let c = c.trim().trim_matches('`').trim();
+                list.iter().any(|x| x == c)
+            }
+            (Some(_), true, None) => false,
+            _ => true,
+        }
+    }
+
     /// Whether a requirement with this milestone is started.
     pub fn is_started(&self, milestone: Option<u32>) -> bool {
         match (&self.started_milestones, milestone) {
@@ -262,6 +291,7 @@ pub struct Overrides {
     pub src_roots: Vec<PathBuf>,
     pub state_dir: Option<PathBuf>,
     pub test_results: Vec<PathBuf>,
+    pub exegra_verdicts: Vec<PathBuf>,
     pub semantic: Option<bool>,
     pub model: Option<String>,
     pub host: Option<String>,
@@ -293,6 +323,8 @@ pub struct Config {
     pub state_dir: PathBuf,
     /// Absolute paths of test-run outputs to ingest (see [`crate::testrun`]).
     pub test_results: Vec<PathBuf>,
+    /// Absolute paths of Exegra claim results (see `docs/requirements.md`).
+    pub exegra_verdicts: Vec<PathBuf>,
     pub authority: AuthorityRules,
     pub semantic: SemanticConfig,
     pub lint: LintConfig,
@@ -367,6 +399,18 @@ impl Config {
                 .collect()
         } else {
             file.test_results
+                .iter()
+                .map(|p| absolutize(file_dir.unwrap_or(cwd), p))
+                .collect()
+        };
+
+        let exegra_verdicts: Vec<PathBuf> = if !cli.exegra_verdicts.is_empty() {
+            cli.exegra_verdicts
+                .iter()
+                .map(|p| absolutize(cwd, p))
+                .collect()
+        } else {
+            file.exegra_verdicts
                 .iter()
                 .map(|p| absolutize(file_dir.unwrap_or(cwd), p))
                 .collect()
@@ -467,11 +511,13 @@ impl Config {
             exclude: file.exclude,
             state_dir,
             test_results,
+            exegra_verdicts,
             authority: file.authority,
             semantic,
             lint,
             gate: GateConfig {
                 started_milestones: file.gate.started_milestones,
+                started_components: file.gate.started_components,
             },
             host: cli
                 .host

@@ -238,6 +238,7 @@ impl<'t> Ctx<'t> {
             calls: vec![],
             is_test: false,
             verifies,
+            implements: Vec::new(),
         });
         self.spans.push((start, end));
         self.symbols.len() - 1

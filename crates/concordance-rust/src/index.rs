@@ -193,6 +193,30 @@ pub fn verifies_from_doc(doc: &str) -> Vec<String> {
     out
 }
 
+/// Hole refs declared by `Implements: H-012, H-013` lines of a doc comment.
+pub fn implements_from_doc(doc: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in doc.lines() {
+        let l = line.trim().trim_start_matches(['*', '-']).trim_start();
+        let lower = l.to_ascii_lowercase();
+        let Some(rest) = lower
+            .strip_prefix("implements:")
+            .map(|_| &l["implements:".len()..])
+        else {
+            continue;
+        };
+        for tok in rest.split(|c: char| c.is_whitespace() || matches!(c, ',' | ';')) {
+            let t =
+                tok.trim_matches(|c: char| matches!(c, '`' | '*' | '[' | ']' | '(' | ')' | ':'));
+            let t = t.strip_suffix('.').unwrap_or(t);
+            if concordance_core::doc::is_requirement_id(t) && !out.iter().any(|x| x == t) {
+                out.push(t.to_string());
+            }
+        }
+    }
+    out
+}
+
 fn attr_info(loc: &Locator, attrs: &[Attribute]) -> AttrInfo {
     let mut docs: Vec<String> = vec![];
     let mut info = AttrInfo {
@@ -492,6 +516,11 @@ impl Walker {
             .as_deref()
             .map(verifies_from_doc)
             .unwrap_or_default();
+        let implements = info
+            .doc
+            .as_deref()
+            .map(implements_from_doc)
+            .unwrap_or_default();
         self.symbols.push(Symbol {
             id: id.clone(),
             file: self.file.clone(),
@@ -514,6 +543,7 @@ impl Walker {
             calls: s.calls,
             is_test: info.is_test && s.kind == SymbolKind::Function,
             verifies,
+            implements,
         });
         (id, cfg)
     }

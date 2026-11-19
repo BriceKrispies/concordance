@@ -24,7 +24,7 @@ use concordance_core::doc::{AuthorityAssessment, DocumentIndex};
 use concordance_core::lang::Languages;
 
 /// Bump when extraction output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "md-11";
+pub const EXTRACTOR_VERSION: &str = "md-12";
 use concordance_core::RepoPath;
 
 /// Extract sections, claims, references and authority from one Markdown file.

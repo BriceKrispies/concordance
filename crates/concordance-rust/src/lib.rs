@@ -22,7 +22,7 @@ use concordance_core::RepoPath;
 use std::path::{Path, PathBuf};
 
 /// Bump when indexing output changes for identical input (forces re-indexing).
-pub const EXTRACTOR_VERSION: &str = "rs-5";
+pub const EXTRACTOR_VERSION: &str = "rs-6";
 
 pub use signature::{normalize_signature, normalize_tokens, strip_visibility};
 

@@ -189,10 +189,59 @@ pub struct RequirementAttributes {
     pub cases: Option<String>,
     pub milestone: Option<String>,
     pub seam: Option<String>,
+    /// `construction`, `checked`, `operational`, or `hole` (a hand-written contract).
+    #[serde(default)]
+    pub realisation: Option<String>,
+    /// The component that implements a hole (its `ref`, else its id).
+    #[serde(default)]
+    pub component: Option<String>,
+    /// For a `construction` requirement: ids of the Exegra claims whose `models` names it.
+    #[serde(default)]
+    pub modelled_by: Option<String>,
+}
+
+/// How a requirement is realised. Absent or unknown means [`Realisation::Checked`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Realisation {
+    /// Guaranteed by generated code; established by the Exegra claims that model it.
+    Construction,
+    /// Hand-written code checked by tests (the default).
+    Checked,
+    /// Measured on a running deployment; no code or test is expected in this repository.
+    Operational,
+    /// A hole: a hand-written contract, implemented by exactly one item that declares
+    /// `Implements: <ref>`.
+    Hole,
+}
+
+impl Realisation {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s
+            .trim()
+            .trim_matches('`')
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "construction" => Some(Realisation::Construction),
+            "checked" => Some(Realisation::Checked),
+            "operational" => Some(Realisation::Operational),
+            "hole" | "hand" => Some(Realisation::Hole),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Realisation::Construction => "construction",
+            Realisation::Checked => "checked",
+            Realisation::Operational => "operational",
+            Realisation::Hole => "hole",
+        }
+    }
 }
 
 impl RequirementAttributes {
-    pub const NAMES: [&'static str; 9] = [
+    pub const NAMES: [&'static str; 12] = [
         "Verify",
         "Boundary",
         "Traces",
@@ -202,7 +251,31 @@ impl RequirementAttributes {
         "Cases",
         "Milestone",
         "Seam",
+        "Realisation",
+        "Component",
+        "Modelled by",
     ];
+
+    /// The realisation (`Checked` when absent or not recognised).
+    pub fn realisation_kind(&self) -> Realisation {
+        self.realisation
+            .as_deref()
+            .and_then(Realisation::parse)
+            .unwrap_or(Realisation::Checked)
+    }
+
+    /// The Exegra claim ids listed in `Modelled by:`.
+    pub fn modelled_by_ids(&self) -> Vec<String> {
+        self.modelled_by
+            .as_deref()
+            .map(|v| {
+                v.split(',')
+                    .map(|t| t.trim().trim_matches('`').trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 
     pub fn is_empty(&self) -> bool {
         self.verify.is_none()
@@ -214,6 +287,9 @@ impl RequirementAttributes {
             && self.cases.is_none()
             && self.milestone.is_none()
             && self.seam.is_none()
+            && self.realisation.is_none()
+            && self.component.is_none()
+            && self.modelled_by.is_none()
     }
 
     /// The milestone as a positive integer; `None` when absent or not one.
@@ -233,6 +309,9 @@ impl RequirementAttributes {
             "Cases" => self.cases.as_deref(),
             "Milestone" => self.milestone.as_deref(),
             "Seam" => self.seam.as_deref(),
+            "Realisation" => self.realisation.as_deref(),
+            "Component" => self.component.as_deref(),
+            "Modelled by" => self.modelled_by.as_deref(),
             _ => None,
         }
     }
@@ -249,6 +328,9 @@ impl RequirementAttributes {
             "Cases" => &mut self.cases,
             "Milestone" => &mut self.milestone,
             "Seam" => &mut self.seam,
+            "Realisation" => &mut self.realisation,
+            "Component" => &mut self.component,
+            "Modelled by" => &mut self.modelled_by,
             _ => return false,
         };
         if slot.is_none() {

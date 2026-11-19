@@ -209,6 +209,7 @@ impl<'t> Ctx<'t> {
             calls: vec![],
             is_test: false,
             verifies,
+            implements: Vec::new(),
         });
         self.spans.push((outer.start, outer.end));
         id

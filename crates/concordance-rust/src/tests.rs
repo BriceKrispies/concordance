@@ -179,3 +179,13 @@ fn an_out_of_line_module_is_marked_and_an_inline_one_is_not() {
         .iter()
         .any(|a| a == EXTERNAL_MOD_ATTRIBUTE));
 }
+
+#[test]
+fn implements_lines_name_the_holes_an_item_implements() {
+    use crate::index::implements_from_doc;
+    assert_eq!(
+        implements_from_doc("Does a thing.\nImplements: H-012, H-013\nImplements `H-014`"),
+        vec!["H-012".to_string(), "H-013".to_string()]
+    );
+    assert!(implements_from_doc("Verifies: H-012").is_empty());
+}

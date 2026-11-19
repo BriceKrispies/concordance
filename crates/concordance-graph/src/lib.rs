@@ -54,6 +54,10 @@ pub struct Model {
     pub virtual_docs: BTreeMap<RepoPath, Arc<VirtualDoc>>,
     /// Problems found while rendering those sources (not persisted).
     pub virtual_diagnostics: Vec<SourceDiagnostic>,
+    /// Exegra claim id -> status (`verified`, `violated`, ...), from the configured
+    /// `exegra_verdicts` files (reloaded on every scan; not persisted). Establishes
+    /// `construction` requirements.
+    pub exegra_verdicts: BTreeMap<String, String>,
     idx: Indexes,
 }
 
@@ -83,6 +87,8 @@ struct Indexes {
     claims_by_requirement: HashMap<String, BTreeSet<ClaimId>>,
     /// Requirement ID -> symbols whose doc declares `Verifies: <id>`.
     symbols_by_requirement: HashMap<String, BTreeSet<SymbolId>>,
+    /// Hole ref -> symbols whose doc declares `Implements: <ref>`.
+    symbols_by_implements: HashMap<String, BTreeSet<SymbolId>>,
 }
 
 impl Model {
@@ -118,6 +124,22 @@ impl Model {
             .into_iter()
             .flatten()
             .filter_map(|s| self.symbols.get(s))
+    }
+
+    /// Symbols that declare `Implements: <ref>` (Rust items only), in id order.
+    pub fn implementers_of<'a>(&'a self, id: &str) -> Vec<&'a Symbol> {
+        self.idx
+            .symbols_by_implements
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter_map(|s| self.symbols.get(s))
+            .filter(|s| {
+                self.files
+                    .get(&s.file)
+                    .is_some_and(|f| f.language == "rust")
+            })
+            .collect()
     }
 
     /// Hash of the statement text of every requirement, by ID: the sorted texts of the claims
@@ -433,6 +455,7 @@ impl Model {
                 FindingStatus::Violated => c.violated += 1,
                 FindingStatus::Unverified => c.unverified += 1,
                 FindingStatus::Planned => c.planned += 1,
+                FindingStatus::Operational => c.operational += 1,
                 FindingStatus::Stale => c.stale += 1,
                 FindingStatus::Ambiguous => c.ambiguous += 1,
                 FindingStatus::Undocumented => c.undocumented += 1,

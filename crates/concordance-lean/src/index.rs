@@ -447,6 +447,7 @@ impl<'t> Cx<'t> {
             calls: vec![],
             is_test: false,
             verifies,
+            implements: Vec::new(),
         });
         self.symbols.len() - 1
     }

@@ -127,6 +127,7 @@ fn sample_symbol() -> Symbol {
         calls: vec![],
         is_test: false,
         verifies: vec![],
+        implements: vec![],
     }
 }
 

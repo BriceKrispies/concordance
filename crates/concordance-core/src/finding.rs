@@ -28,15 +28,19 @@ pub enum FindingStatus {
     Unverified,
     /// The requirement's milestone is not started (`[gate] started_milestones`).
     Planned,
+    /// An operational requirement: measured on a running deployment, so no code or test of
+    /// this repository is expected to establish it. Never counted unverified or unstarted.
+    Operational,
     Verified,
 }
 
 impl FindingStatus {
-    pub const ALL: [FindingStatus; 7] = [
+    pub const ALL: [FindingStatus; 8] = [
         FindingStatus::Verified,
         FindingStatus::Violated,
         FindingStatus::Unverified,
         FindingStatus::Planned,
+        FindingStatus::Operational,
         FindingStatus::Stale,
         FindingStatus::Ambiguous,
         FindingStatus::Undocumented,
@@ -47,6 +51,7 @@ impl FindingStatus {
             FindingStatus::Violated => "violated",
             FindingStatus::Unverified => "unverified",
             FindingStatus::Planned => "planned",
+            FindingStatus::Operational => "operational",
             FindingStatus::Stale => "stale",
             FindingStatus::Ambiguous => "ambiguous",
             FindingStatus::Undocumented => "undocumented",
@@ -282,6 +287,8 @@ pub struct Counts {
     pub unverified: u32,
     #[serde(default)]
     pub planned: u32,
+    #[serde(default)]
+    pub operational: u32,
     pub stale: u32,
     pub ambiguous: u32,
     pub undocumented: u32,

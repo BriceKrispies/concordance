@@ -196,6 +196,13 @@ impl Model {
                 sym.id.clone(),
             );
         }
+        for r in &sym.implements {
+            add(
+                &mut self.idx.symbols_by_implements,
+                r.clone(),
+                sym.id.clone(),
+            );
+        }
         self.symbols.insert(sym.id.clone(), sym);
         old
     }
@@ -216,6 +223,9 @@ impl Model {
         }
         for r in &s.verifies {
             del(&mut self.idx.symbols_by_requirement, r, &s.id);
+        }
+        for r in &s.implements {
+            del(&mut self.idx.symbols_by_implements, r, &s.id);
         }
     }
 

@@ -248,6 +248,10 @@ pub struct Symbol {
     /// its doc comment. Meaningful on tests; recorded on any item.
     #[serde(default)]
     pub verifies: Vec<String>,
+    /// Hole refs this item declares it implements, from `Implements: H-012` lines in its doc
+    /// comment (Rust items only).
+    #[serde(default)]
+    pub implements: Vec<String>,
 }
 
 impl Symbol {
