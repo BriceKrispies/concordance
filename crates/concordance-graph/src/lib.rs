@@ -456,6 +456,7 @@ impl Model {
                 FindingStatus::Unverified => c.unverified += 1,
                 FindingStatus::Planned => c.planned += 1,
                 FindingStatus::Operational => c.operational += 1,
+                FindingStatus::Target => c.target += 1,
                 FindingStatus::Stale => c.stale += 1,
                 FindingStatus::Ambiguous => c.ambiguous += 1,
                 FindingStatus::Undocumented => c.undocumented += 1,

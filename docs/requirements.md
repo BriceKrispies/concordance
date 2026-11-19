@@ -180,6 +180,22 @@ so it is a requirement for verification, and the Markdown form works without Exe
   `hole_unimplemented`, and are left out of the gate. Without `started_components`, every hole is expected.
   With `started_components` set, a hole with no `Component:` is not started.
 
+## Target
+
+`Realisation: target` marks a requirement or hole that describes the enterprise target, not code that ships. No
+item, test or measurement is expected in this repository, so its finding has the status `target`: its own group
+(`counts.target`, `findings[].realisation = "target"`), never `unverified`, `planned` or `hole_unimplemented`, and
+left out of `--fail-on unverified`. A requirement with a failing test is still `violated`, and one with a
+passing recorded test is still `verified`.
+
+In an Exegra source a contract that is a hole renders as `Realisation: target` instead of `hole` when its
+`deployment` is `target`, declared or, when it declares none, defaulted from its `implementedBy` component having
+`implementation.status: "not-implemented"` (`deployment: "shipped"` overrides the default). The scan report also
+lists the machines (implementation-level behaviors whose `realisation` is `target`, declared or defaulted from
+the `subject` component the same way) and the contracts the specification marks as target in `targets`
+(`targets.machines`, `targets.contracts`), and the text report prints their counts. They are never counted as
+unimplemented or as holes.
+
 ## Milestones
 
 `Milestone: N` names the milestone at which a requirement is first verified; `Seam: M` (with `M <= N`)

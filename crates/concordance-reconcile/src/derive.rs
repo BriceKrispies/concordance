@@ -408,6 +408,23 @@ pub fn claim_finding(
                     ),
                 };
             }
+            Realisation::Target
+                if matches!(
+                    d.status,
+                    FindingStatus::Unverified | FindingStatus::Stale | FindingStatus::Planned
+                ) =>
+            {
+                d = Decision {
+                    status: FindingStatus::Target,
+                    category: FindingCategory::MissingEvidence,
+                    confidence: 0.9,
+                    quality: EvidenceQuality::None,
+                    headline: format!(
+                        "Target requirement `{}`: it describes the enterprise target, not code that ships, so no item or test in this repository is expected to establish it yet.",
+                        r.id
+                    ),
+                };
+            }
             Realisation::Hole if d.status == FindingStatus::Verified => {
                 let n = model.implementers_of(&r.id).len();
                 if n != 1 {
@@ -738,6 +755,7 @@ fn title_for(status: FindingStatus, category: FindingCategory, claim: &Claim) ->
         (FindingStatus::Verified, _) => "Verified",
         (FindingStatus::Planned, _) => "Planned",
         (FindingStatus::Operational, _) => "Operational",
+        (FindingStatus::Target, _) => "Target",
         (FindingStatus::Unverified, c) if is_suspected(c) => "Possible contradiction",
         _ => "Unverified",
     };
@@ -801,6 +819,7 @@ pub fn proposals_for(
         FindingStatus::Planned => vec![p(NoActionNeeded, "The requirement's milestone is not started; add it to `[gate] started_milestones` when work begins.", false, &[].to_vec())],
         FindingStatus::Undocumented => vec![p(EstablishSpecification, "Specify the intended behavior so it can be checked.", true, &targets)],
         FindingStatus::Operational => vec![p(NoActionNeeded, "Measured on a running deployment; record the measurement there, not in this repository.", false, &[].to_vec())],
+        FindingStatus::Target => vec![p(NoActionNeeded, "Describes the enterprise target, which is not built yet; it needs no code or test here until its realisation becomes shipped.", false, &[].to_vec())],
         FindingStatus::Verified => vec![p(NoActionNeeded, "Evidence supports the claim.", false, &[].to_vec())],
     }
 }

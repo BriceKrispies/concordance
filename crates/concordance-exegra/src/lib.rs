@@ -29,7 +29,7 @@ use std::fmt;
 
 /// Bump when the rendered text or the origin mapping changes for identical input (forces
 /// re-indexing).
-pub const EXTRACTOR_VERSION: &str = "exegra-2";
+pub const EXTRACTOR_VERSION: &str = "exegra-3";
 
 /// Why a whole file could not be expanded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -236,6 +236,94 @@ pub struct Expansion {
     /// Requirement id as written (`ref`, e.g. `KRN-002`) -> id of the claim entity it was
     /// rendered from. The first claim wins when two share a `ref`.
     pub requirements: BTreeMap<String, String>,
+    /// The machines and contracts the specification marks as target.
+    pub targets: TargetGroup,
+}
+
+/// What a specification marks as the enterprise target rather than code that ships: the
+/// implementation-level behaviors whose `realisation` is `target` and the contracts whose
+/// `deployment` is `target`, each declared or defaulted from its component (a behavior's
+/// `subject`, a contract's `implementedBy`) having `implementation.status: "not-implemented"`.
+///
+/// They are reported in their own group. They are never counted as unimplemented or as holes: a
+/// hole that is target renders as `Realisation: target`, not `hole`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TargetGroup {
+    /// Ids of the target machines, in file order.
+    pub machines: Vec<String>,
+    /// Ids of the target contracts, in file order.
+    pub contracts: Vec<String>,
+}
+
+impl TargetGroup {
+    /// True when nothing is target.
+    pub fn is_empty(&self) -> bool {
+        self.machines.is_empty() && self.contracts.is_empty()
+    }
+
+    /// Adds `other`'s ids, each once.
+    pub fn merge(&mut self, other: &TargetGroup) {
+        for (mine, theirs) in [
+            (&mut self.machines, &other.machines),
+            (&mut self.contracts, &other.contracts),
+        ] {
+            for id in theirs {
+                if !mine.contains(id) {
+                    mine.push(id.clone());
+                }
+            }
+        }
+    }
+}
+
+/// Whether the entity a `realisation` or `deployment` declares, or else its component's
+/// implementation status, makes it target. `declared` is the value of its own property.
+pub(crate) fn is_target(declared: Option<&str>, component: Option<&Value>) -> bool {
+    match declared {
+        Some("target") => true,
+        Some("shipped") => false,
+        _ => {
+            component
+                .and_then(|c| c.get("implementation"))
+                .and_then(|i| i.get("status"))
+                .and_then(Value::as_str)
+                == Some("not-implemented")
+        }
+    }
+}
+
+/// The target machines and contracts of the top-level object of a specification.
+fn target_group(obj: &serde_json::Map<String, Value>) -> TargetGroup {
+    let items = |key: &str| -> Vec<&Value> {
+        obj.get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .collect()
+    };
+    let components: HashMap<&str, &Value> = items("components")
+        .into_iter()
+        .filter_map(|c| str_of(c, "id").map(|id| (id, c)))
+        .collect();
+    let component_of =
+        |v: &Value, key: &str| str_of(v, key).and_then(|c| components.get(c).copied());
+    let mut group = TargetGroup::default();
+    for b in items("behaviors") {
+        if str_of(b, "level") != Some("implementation") {
+            continue;
+        }
+        let Some(id) = str_of(b, "id") else { continue };
+        if is_target(str_of(b, "realisation"), component_of(b, "subject")) {
+            group.machines.push(id.to_string());
+        }
+    }
+    for c in items("contracts") {
+        let Some(id) = str_of(c, "id") else { continue };
+        if is_target(str_of(c, "deployment"), component_of(c, "implementedBy")) {
+            group.contracts.push(id.to_string());
+        }
+    }
+    group
 }
 
 /// Cheap detection: the text is a JSONC object with a top-level `"exegra"` key. Does not
@@ -459,7 +547,10 @@ pub fn expand(rel_path: &str, text: &str) -> Result<Expansion, ExegraError> {
         by_id: &by_id,
         modelled_by: &modelled_by,
     };
-    let mut out = Expansion::default();
+    let mut out = Expansion {
+        targets: target_group(obj),
+        ..Expansion::default()
+    };
     let mut seen_paths: HashMap<String, String> = HashMap::new();
     // Ids that a marker in a rendered section names.
     let mut placed: HashSet<String> = HashSet::new();

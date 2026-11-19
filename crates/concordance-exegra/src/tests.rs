@@ -299,3 +299,62 @@ fn a_hole_no_section_places_is_reported() {
         x.diagnostics
     );
 }
+
+const TARGET: &str = r##"{
+  "exegra": "0.1",
+  "documents": [{"id":"d","path":"spec/t.md","role":"requirements"}],
+  "sections": [{"id":"s","title":"T","level":1,"document":"d","order":1,"body":"{{entity:h-ship}}\n{{entity:h-declared}}\n{{entity:h-default}}\n{{entity:h-override}}\n"}],
+  "components": [
+    {"id":"built","ref":"C-1","name":"Built","purpose":"p","talksTo":"","implementation":{"status":"implemented"}},
+    {"id":"future","ref":"C-2","name":"Future","purpose":"p","talksTo":"","implementation":{"status":"not-implemented"}}
+  ],
+  "contracts": [
+    {"id":"h-ship","ref":"H-001","name":"Shipped","realisation":"hand","implementedBy":"built","postconditions":["keeps it"]},
+    {"id":"h-declared","ref":"H-002","name":"Declared","realisation":"hand","implementedBy":"built","deployment":"target","postconditions":["keeps it"]},
+    {"id":"h-default","ref":"H-003","name":"Defaulted","realisation":"hand","implementedBy":"future","postconditions":["keeps it"]},
+    {"id":"h-override","ref":"H-004","name":"Overridden","realisation":"hand","implementedBy":"future","deployment":"shipped","postconditions":["keeps it"]},
+    {"id":"g-target","ref":"CT-001","name":"Generated target","realisation":"generated","implementedBy":"future"},
+    {"id":"g-ship","ref":"CT-002","name":"Generated shipped","realisation":"generated","implementedBy":"built"}
+  ],
+  "behaviors": [
+    {"id":"m-ship","level":"implementation","subject":"built"},
+    {"id":"m-default","level":"implementation","subject":"future"},
+    {"id":"m-declared","level":"implementation","subject":"built","realisation":"target"},
+    {"id":"m-override","level":"implementation","subject":"future","realisation":"shipped"},
+    {"id":"m-model","level":"model","subject":"future"}
+  ]
+}
+"##;
+
+#[test]
+fn a_hole_whose_deployment_is_target_is_not_a_hole() {
+    let x = expand("s.jsonc", TARGET).unwrap();
+    let t = &doc(&x, "spec/t.md").text;
+    assert!(t.contains("**H-001** The item implementing Shipped SHALL satisfy its postconditions: keeps it\n- Realisation: hole\n"), "{t}");
+    // Declared target, and target by default from a not-implemented component.
+    assert!(t.contains("**H-002** The item implementing Declared SHALL satisfy its postconditions: keeps it\n- Realisation: target\n"), "{t}");
+    assert!(t.contains("**H-003** The item implementing Defaulted SHALL satisfy its postconditions: keeps it\n- Realisation: target\n"), "{t}");
+    // Declared shipped wins over the component's status.
+    assert!(t.contains("**H-004** The item implementing Overridden SHALL satisfy its postconditions: keeps it\n- Realisation: hole\n"), "{t}");
+    assert!(x.diagnostics.is_empty(), "{:?}", x.diagnostics);
+}
+
+#[test]
+fn target_machines_and_contracts_are_their_own_group() {
+    let x = expand("s.jsonc", TARGET).unwrap();
+    // Implementation-level behaviors only; a model-level behavior is no machine.
+    assert_eq!(x.targets.machines, vec!["m-default", "m-declared"]);
+    assert_eq!(
+        x.targets.contracts,
+        vec!["h-declared", "h-default", "g-target"]
+    );
+    assert!(!x.targets.is_empty());
+
+    let mut all = super::TargetGroup::default();
+    all.merge(&x.targets);
+    all.merge(&x.targets);
+    assert_eq!(all, x.targets, "merging twice adds each id once");
+
+    let none = expand("s.jsonc", REALISATION).unwrap();
+    assert!(none.targets.is_empty());
+}

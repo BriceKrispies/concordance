@@ -1,6 +1,6 @@
 // Formatting helpers and human-readable vocabularies.
 
-export const STATUSES = ['violated', 'stale', 'ambiguous', 'unverified', 'planned', 'operational', 'verified', 'undocumented'];
+export const STATUSES = ['violated', 'stale', 'ambiguous', 'unverified', 'planned', 'operational', 'target', 'verified', 'undocumented'];
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 
 export function titleCase(snake) {

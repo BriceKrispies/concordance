@@ -360,8 +360,8 @@ async fn serve(a: ServeArgs) -> ExitCode {
             match sub.next().await {
                 Next::Event(env) => match &env.event {
                     Event::ScanCompleted { counts, changed_files, revision, .. } => eprintln!(
-                        "revision {}: {} file(s) changed — {} violated, {} stale, {} ambiguous, {} unverified, {} planned, {} operational, {} verified, {} undocumented",
-                        revision.0, changed_files, counts.violated, counts.stale, counts.ambiguous, counts.unverified, counts.planned, counts.operational, counts.verified, counts.undocumented
+                        "revision {}: {} file(s) changed — {} violated, {} stale, {} ambiguous, {} unverified, {} planned, {} operational, {} target, {} verified, {} undocumented",
+                        revision.0, changed_files, counts.violated, counts.stale, counts.ambiguous, counts.unverified, counts.planned, counts.operational, counts.target, counts.verified, counts.undocumented
                     ),
                     Event::SystemWarning { message } => eprintln!("warning: {message}"),
                     Event::SystemError { message } => eprintln!("error: {message}"),
@@ -443,7 +443,10 @@ async fn scan(a: ScanArgs) -> ExitCode {
     });
     engine.wait_idle().await;
     let status = engine.shared.status();
-    let (rep, _) = engine.shared.read(|m| {
+    let targets = report::TargetReport::from(
+        &concordance_engine::virtuals::load_virtual(&results_config).targets,
+    );
+    let (mut rep, _) = engine.shared.read(|m| {
         report::build(
             m,
             &repo,
@@ -454,6 +457,7 @@ async fn scan(a: ScanArgs) -> ExitCode {
             &repos,
         )
     });
+    rep.targets = targets;
     let exegra_failure = match &a.exegra.exegra_results {
         Some(path) => {
             let set = concordance_engine::virtuals::load_virtual(&results_config);
@@ -780,7 +784,7 @@ fn report_cmd(a: ReportArgs) -> ExitCode {
         detail: Some("report reads persisted state; semantic availability not probed".into()),
         ..Default::default()
     };
-    let rep = report::build(
+    let mut rep = report::build(
         &model,
         &config.repo_root.display().to_string(),
         &semantic,
@@ -789,6 +793,7 @@ fn report_cmd(a: ReportArgs) -> ExitCode {
         &config.gate,
         &config.repos,
     );
+    rep.targets = report::TargetReport::from(&set.targets);
     match a.format {
         Format::Json => println!("{}", serde_json::to_string(&rep).unwrap_or_default()),
         Format::Text => print!("{}", report::human(&rep, a.verbose)),

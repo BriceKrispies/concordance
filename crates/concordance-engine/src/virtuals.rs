@@ -16,6 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub use concordance_exegra::TargetGroup;
+
 /// What rendering every structured source produced.
 #[derive(Clone, Debug, Default)]
 pub struct VirtualSet {
@@ -27,6 +29,9 @@ pub struct VirtualSet {
     pub requirements: BTreeMap<String, String>,
     /// The structured source files that were read, sorted.
     pub sources: Vec<RepoPath>,
+    /// The machines and contracts the sources mark as target: reported in their own group,
+    /// never counted as unimplemented or as holes.
+    pub targets: TargetGroup,
 }
 
 fn diagnostic(
@@ -93,6 +98,7 @@ pub fn render_sources(files: &[(RepoPath, FileKind, PathBuf)]) -> VirtualSet {
                 format!("{}: {}", d.kind.as_str(), d.message),
             ));
         }
+        set.targets.merge(&expansion.targets);
         for (r, e) in &expansion.requirements {
             set.requirements
                 .entry(r.clone())

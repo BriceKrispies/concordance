@@ -31,16 +31,21 @@ pub enum FindingStatus {
     /// An operational requirement: measured on a running deployment, so no code or test of
     /// this repository is expected to establish it. Never counted unverified or unstarted.
     Operational,
+    /// A requirement or hole that describes the enterprise target (`Realisation: target`): no
+    /// code or test of this repository is expected to establish it yet. Reported in its own
+    /// group, never counted unverified, unimplemented or as a hole, and never gated.
+    Target,
     Verified,
 }
 
 impl FindingStatus {
-    pub const ALL: [FindingStatus; 8] = [
+    pub const ALL: [FindingStatus; 9] = [
         FindingStatus::Verified,
         FindingStatus::Violated,
         FindingStatus::Unverified,
         FindingStatus::Planned,
         FindingStatus::Operational,
+        FindingStatus::Target,
         FindingStatus::Stale,
         FindingStatus::Ambiguous,
         FindingStatus::Undocumented,
@@ -52,6 +57,7 @@ impl FindingStatus {
             FindingStatus::Unverified => "unverified",
             FindingStatus::Planned => "planned",
             FindingStatus::Operational => "operational",
+            FindingStatus::Target => "target",
             FindingStatus::Stale => "stale",
             FindingStatus::Ambiguous => "ambiguous",
             FindingStatus::Undocumented => "undocumented",
@@ -289,6 +295,9 @@ pub struct Counts {
     pub planned: u32,
     #[serde(default)]
     pub operational: u32,
+    /// Open findings of requirements and holes that describe the enterprise target.
+    #[serde(default)]
+    pub target: u32,
     pub stale: u32,
     pub ambiguous: u32,
     pub undocumented: u32,

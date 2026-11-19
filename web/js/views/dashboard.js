@@ -13,6 +13,7 @@ const TILES = [
   ['unverified', 'Unverified', route('findings', { status: 'unverified' })],
   ['planned', 'Planned', route('findings', { status: 'planned' })],
   ['operational', 'Operational', route('findings', { status: 'operational' })],
+  ['target', 'Target', route('findings', { status: 'target' })],
   ['stale', 'Stale', route('findings', { status: 'stale' })],
   ['ambiguous', 'Ambiguous', route('findings', { status: 'ambiguous' })],
   ['undocumented', 'Undocumented', route('findings', { status: 'undocumented' })],

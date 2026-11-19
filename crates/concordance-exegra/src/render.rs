@@ -344,9 +344,14 @@ fn hole(e: &Entity<'_>, ctx: &Ctx<'_>, diags: &mut Vec<Diagnostic>) -> Option<Re
             posts.join(" ")
         )
     };
+    // A hole whose deployment is target is the enterprise target, not code that ships: it is
+    // never expected to have an implementing item, so it is not a hole.
+    let component = text_of(e, "implementedBy").and_then(|c| ctx.by_id.get(c.as_str()));
+    let target = crate::is_target(str_of(e.value, "deployment"), component.map(|c| c.value));
+    let kind = if target { "target" } else { "hole" };
     let mut lines = vec![
         format!("**{r}** {statement}"),
-        "- Realisation: hole".to_string(),
+        format!("- Realisation: {kind}"),
     ];
     if let Some(c) = text_of(e, "implementedBy") {
         let c = reference(e, ctx, diags, "implementedBy", &c);

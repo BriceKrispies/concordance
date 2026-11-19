@@ -512,6 +512,36 @@ fn an_operational_requirement_without_code_is_operational_not_unverified() {
 }
 
 #[test]
+fn a_target_requirement_without_code_is_target_not_unverified_and_not_a_hole() {
+    // A hole whose deployment is target renders as `Realisation: target`.
+    let spec = "**H-012** The item implementing the projection SHALL satisfy its postconditions: it keeps every proposal.
+- Realisation: target
+- Component: C-1
+- Milestone: 3
+";
+    let model = realisation_model(spec, &[]);
+    let gate = GateConfig {
+        started_milestones: Some(vec![1]),
+        ..Default::default()
+    };
+    // Not started would be `planned` for a checked requirement; target is its own group.
+    let f = finding_of(&model, "H-012", gate.clone());
+    assert_eq!(f.status, FindingStatus::Target, "{}", f.explanation);
+    let f = finding_of(&model, "H-012", GateConfig::default());
+    assert_eq!(f.status, FindingStatus::Target, "{}", f.explanation);
+    // It is no hole: nothing expects an implementing item, so no `hole_unimplemented`.
+    assert!(hole_rules(&model, GateConfig::default()).is_empty());
+    assert!(hole_rules(&model, gate).is_empty());
+
+    // The same text as a hole is unimplemented.
+    let hole = realisation_model(HOLE_SPEC, &[]);
+    assert_eq!(
+        hole_rules(&hole, GateConfig::default()),
+        vec!["hole_unimplemented"]
+    );
+}
+
+#[test]
 fn a_construction_requirement_is_verified_only_when_every_modelling_claim_is() {
     let spec = "**CON-001** Generated code SHALL reject a stale write.\n- Realisation: construction\n- Modelled by: c-1, c-2\n";
     let mut model = realisation_model(spec, &[]);

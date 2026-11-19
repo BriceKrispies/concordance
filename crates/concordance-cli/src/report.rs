@@ -89,11 +89,32 @@ pub struct Report {
     pub revision: Revision,
     pub semantic: SemanticSummary,
     pub counts: Counts,
+    /// The machines and contracts the specification marks as target (`realisation` or
+    /// `deployment` is `target`, declared or defaulted from a not-implemented component): the
+    /// enterprise target, not code that ships. Their own group: never counted as unimplemented,
+    /// as holes or by the gate.
+    pub targets: TargetReport,
     pub gate: Gate,
     /// Citation checks per alias; present when `[repos]` is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub citations: Option<concordance_engine::citation::CitationSummary>,
     pub findings: Vec<ReportFinding>,
+}
+
+/// The target machines and contracts, by id.
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
+pub struct TargetReport {
+    pub machines: Vec<String>,
+    pub contracts: Vec<String>,
+}
+
+impl From<&concordance_engine::virtuals::TargetGroup> for TargetReport {
+    fn from(g: &concordance_engine::virtuals::TargetGroup) -> Self {
+        TargetReport {
+            machines: g.machines.clone(),
+            contracts: g.contracts.clone(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -127,7 +148,10 @@ fn unverified_requirements(m: &Model, gate: &GateConfig) -> usize {
     for c in m.requirement_claims().filter(|c| c.is_obligation()) {
         let Some(r) = &c.requirement else { continue };
         if !gate.attributes_started(&r.attributes)
-            || r.attributes.realisation_kind() == Realisation::Operational
+            || matches!(
+                r.attributes.realisation_kind(),
+                Realisation::Operational | Realisation::Target
+            )
         {
             continue;
         }
@@ -240,6 +264,7 @@ pub fn build(
             coverage,
         },
         counts: m.counts(),
+        targets: TargetReport::default(),
         gate: Gate {
             fail_on: format!("{fail_on:?}").to_lowercase(),
             failed,
@@ -297,7 +322,23 @@ pub fn human(r: &Report, verbose: bool) -> String {
         "{} documents, {} claims ({} obligations), {} source files, {} symbols, {} relationships",
         c.documents, c.claims, c.obligation_claims, c.source_files, c.symbols, c.edges
     );
-    let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   planned {:>5}   operational {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.planned, c.operational, c.verified, c.undocumented);
+    let _ = writeln!(out, "\n  violated {:>5}   stale {:>5}   ambiguous {:>5}   unverified {:>5}   planned {:>5}   operational {:>5}   target {:>5}   verified {:>5}   undocumented {:>5}", c.violated, c.stale, c.ambiguous, c.unverified, c.planned, c.operational, c.target, c.verified, c.undocumented);
+    let t = &r.targets;
+    if !t.machines.is_empty() || !t.contracts.is_empty() {
+        let _ = writeln!(
+            out,
+            "\n  target {:>5} machine(s), {} contract(s): the enterprise target, not code that ships; not counted as unimplemented or as holes",
+            t.machines.len(),
+            t.contracts.len()
+        );
+        if verbose {
+            for (what, ids) in [("machines", &t.machines), ("contracts", &t.contracts)] {
+                if !ids.is_empty() {
+                    let _ = writeln!(out, "    {what}: {}", ids.join(", "));
+                }
+            }
+        }
+    }
     let _ = writeln!(out, "\n{}\n", r.semantic.coverage);
     if let Some(cs) = &r.citations {
         let _ = writeln!(out, "Citations (distinct): alias, found, resolved, by prefix, ambiguous, missing, bad lines, drifted, moved");
@@ -329,6 +370,7 @@ pub fn human(r: &Report, verbose: bool) -> String {
         FindingStatus::Unverified,
         FindingStatus::Planned,
         FindingStatus::Operational,
+        FindingStatus::Target,
         FindingStatus::Verified,
     ];
     for status in order {

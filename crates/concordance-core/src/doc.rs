@@ -212,6 +212,10 @@ pub enum Realisation {
     /// A hole: a hand-written contract, implemented by exactly one item that declares
     /// `Implements: <ref>`.
     Hole,
+    /// Describes the enterprise target, not code that ships: no item, test or measurement is
+    /// expected in this repository. A contract that is a hole but whose deployment is `target`
+    /// is this, never a [`Realisation::Hole`], so it is never reported as unimplemented.
+    Target,
 }
 
 impl Realisation {
@@ -227,6 +231,7 @@ impl Realisation {
             "checked" => Some(Realisation::Checked),
             "operational" => Some(Realisation::Operational),
             "hole" | "hand" => Some(Realisation::Hole),
+            "target" => Some(Realisation::Target),
             _ => None,
         }
     }
@@ -236,6 +241,7 @@ impl Realisation {
             Realisation::Checked => "checked",
             Realisation::Operational => "operational",
             Realisation::Hole => "hole",
+            Realisation::Target => "target",
         }
     }
 }
