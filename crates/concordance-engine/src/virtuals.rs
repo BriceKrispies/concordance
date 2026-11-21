@@ -8,7 +8,7 @@
 //! the model's own hash comparison decides which documents changed.
 
 use crate::discover::{FileKind, PathFilter};
-use crate::source::MAX_FILE_BYTES;
+use crate::source::{oversize_spec, oversize_specs, OversizeSpec, MAX_SPEC_BYTES};
 use concordance_core::config::Config;
 use concordance_core::virtual_doc::{SourceDiagnostic, VirtualDoc};
 use concordance_core::RepoPath;
@@ -60,7 +60,14 @@ pub fn render_sources(files: &[(RepoPath, FileKind, PathBuf)]) -> VirtualSet {
         let Ok(meta) = std::fs::metadata(abs) else {
             continue;
         };
-        if meta.len() > MAX_FILE_BYTES {
+        if meta.len() > MAX_SPEC_BYTES {
+            // A structured source over the limit is an error at the source, never a silent skip.
+            // `scan` takes these out before calling this, so this is the backstop; a large
+            // `.json` that is not a structured source is not a specification and is left alone.
+            if let Some(over) = oversize_spec(rel, &FileKind::Exegra, abs) {
+                set.diagnostics
+                    .push(diagnostic(rel, "", 1, true, over.to_string()));
+            }
             continue;
         }
         let Ok(bytes) = std::fs::read(abs) else {
@@ -169,6 +176,12 @@ pub fn resolve_conflicts(set: &mut VirtualSet, markdown: &BTreeSet<RepoPath>) ->
         }
     }
     conflicts
+}
+
+/// The specification files of `config` that are over the read limit. `scan`, `lint` and `record`
+/// refuse to run while there is any.
+pub fn oversize_specs_in(config: &Config) -> Vec<OversizeSpec> {
+    oversize_specs(&PathFilter::new(config).discover())
 }
 
 /// Render the structured sources of the configured spec roots, without scanning. Used by

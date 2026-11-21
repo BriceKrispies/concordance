@@ -381,11 +381,27 @@ async fn serve(a: ServeArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Refuse to run while a specification file is over the read limit: each one is named on stderr
+/// and the command exits 2. Such a file is never skipped silently.
+fn refuse_oversize(config: &Config) -> Option<ExitCode> {
+    let over = concordance_engine::virtuals::oversize_specs_in(config);
+    if over.is_empty() {
+        return None;
+    }
+    for o in &over {
+        eprintln!("error: {o}");
+    }
+    Some(ExitCode::from(2))
+}
+
 async fn scan(a: ScanArgs) -> ExitCode {
     let config = match config_or_exit(&a.common, None, None) {
         Ok(c) => c,
         Err(code) => return code,
     };
+    if let Some(code) = refuse_oversize(&config) {
+        return code;
+    }
     let repo = config.repo_root.display().to_string();
     let gate = config.gate.clone();
     let results_config = config.clone();
@@ -498,6 +514,9 @@ async fn lint(mut a: LintArgs) -> ExitCode {
         Ok(c) => c,
         Err(code) => return code,
     };
+    if let Some(code) = refuse_oversize(&config) {
+        return code;
+    }
     let (engine, task, bus) = match start_engine(config.clone(), false).await {
         Ok(v) => v,
         Err(c) => return c,
@@ -531,6 +550,9 @@ async fn record(mut a: RecordArgs) -> ExitCode {
         Ok(c) => c,
         Err(code) => return code,
     };
+    if let Some(code) = refuse_oversize(&config) {
+        return code;
+    }
     if config.test_results.is_empty() {
         eprintln!(
             "error: no test results configured: name them with `test_results` in the configuration or `--test-results`"

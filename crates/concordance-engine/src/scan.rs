@@ -164,6 +164,13 @@ impl Engine {
         let discovered = tokio::task::spawn_blocking(move || {
             let ws = crate::languages().discover(&cfg.repo_root, &cfg.src_roots);
             let files = PathFilter::new(&cfg).discover();
+            // A specification over the read limit is refused, not indexed: it is reported as an
+            // error below and is not in the model, so nothing about it can pass the lint.
+            let oversize = crate::source::oversize_specs(&files);
+            let files: Vec<_> = files
+                .into_iter()
+                .filter(|f| !oversize.iter().any(|o| o.path == f.0))
+                .collect();
             let mut virtuals = crate::virtuals::render_sources(&files);
             let markdown: BTreeSet<RepoPath> = files
                 .iter()
@@ -175,10 +182,10 @@ impl Engine {
                 .into_iter()
                 .filter(|f| f.1 != FileKind::Exegra && !conflicts.contains(&f.0))
                 .collect();
-            (ws, files, virtuals)
+            (ws, files, virtuals, oversize)
         })
         .await;
-        let (ws, files, virtuals) = match discovered {
+        let (ws, files, virtuals, oversize) = match discovered {
             Ok(v) => v,
             Err(e) => {
                 self.publish_now(Event::SystemError {
@@ -188,6 +195,11 @@ impl Engine {
                 return;
             }
         };
+        for o in &oversize {
+            self.publish_now(Event::SystemError {
+                message: o.to_string(),
+            });
+        }
         for w in &ws.warnings {
             self.publish_now(Event::SystemWarning { message: w.clone() });
         }

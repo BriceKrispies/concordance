@@ -2,6 +2,7 @@
 //! constructed from validated `RepoPath`s) are ever read; nothing here accepts
 //! arbitrary filesystem paths.
 
+use crate::discover::FileKind;
 use concordance_core::graph::NodeRef;
 use concordance_core::virtual_doc::{Origin, VirtualDoc};
 use concordance_core::{ContentHash, RepoPath};
@@ -12,17 +13,97 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Largest ordinary source file read for scanning code.
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
-/// Read a repository file as text (lossy UTF-8). Refuses files over `MAX_FILE_BYTES`
-/// and anything that resolves outside the repository root.
+/// Largest specification file read and indexed: a Markdown specification or a structured
+/// (`.json`/`.jsonc`) source. A larger one is refused by `scan`, `lint` and `record` with an
+/// error naming it; it is never skipped silently.
+pub const MAX_SPEC_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Whether `path` is a specification file, which gets [`MAX_SPEC_BYTES`] rather than
+/// [`MAX_FILE_BYTES`].
+pub fn is_spec_path(path: &RepoPath) -> bool {
+    matches!(path.extension(), Some("md" | "json" | "jsonc"))
+}
+
+/// The read limit for `path`.
+pub fn read_limit(path: &RepoPath) -> u64 {
+    if is_spec_path(path) {
+        MAX_SPEC_BYTES
+    } else {
+        MAX_FILE_BYTES
+    }
+}
+
+/// A specification file over [`MAX_SPEC_BYTES`]: it is not read, so it cannot be linted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OversizeSpec {
+    pub path: RepoPath,
+    pub bytes: u64,
+    pub limit: u64,
+}
+
+impl std::fmt::Display for OversizeSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const MIB: f64 = 1024.0 * 1024.0;
+        write!(
+            f,
+            "specification file {} is {} bytes ({:.1} MiB), over the {} MiB limit, so it cannot be read or linted; split it into smaller files",
+            self.path,
+            self.bytes,
+            self.bytes as f64 / MIB,
+            self.limit / (1024 * 1024)
+        )
+    }
+}
+
+/// The file at `abs` (repository path `path`, discovered as `kind`) if it is a specification over
+/// [`MAX_SPEC_BYTES`]. A Markdown file always is one. A `.json`/`.jsonc` file is one only when its
+/// content is a structured source, so an unrelated large data file is not refused. A file that
+/// cannot be stat'ed or read is reported as a specification rather than skipped.
+pub fn oversize_spec(path: &RepoPath, kind: &FileKind, abs: &Path) -> Option<OversizeSpec> {
+    let bytes = std::fs::metadata(abs).ok()?.len();
+    if bytes <= MAX_SPEC_BYTES {
+        return None;
+    }
+    let is_spec = match kind {
+        FileKind::Markdown => true,
+        FileKind::Exegra => match std::fs::read(abs) {
+            Ok(b) => concordance_exegra::is_exegra_spec(&String::from_utf8_lossy(&b)),
+            Err(_) => true,
+        },
+        FileKind::Source(_) => false,
+    };
+    is_spec.then(|| OversizeSpec {
+        path: path.clone(),
+        bytes,
+        limit: MAX_SPEC_BYTES,
+    })
+}
+
+/// The specification files among `files` that are over [`MAX_SPEC_BYTES`] (see [`oversize_spec`]).
+pub fn oversize_specs(files: &[(RepoPath, FileKind, PathBuf)]) -> Vec<OversizeSpec> {
+    files
+        .iter()
+        .filter_map(|(path, kind, abs)| oversize_spec(path, kind, abs))
+        .collect()
+}
+
+/// Read a repository file as text (lossy UTF-8). Refuses files over [`read_limit`] (the
+/// specification limit for specification files, [`MAX_FILE_BYTES`] otherwise) and anything that
+/// resolves outside the repository root.
 pub fn read_text(root: &Path, path: &RepoPath) -> std::io::Result<String> {
     let abs = path.to_fs(root);
     let meta = std::fs::metadata(&abs)?;
-    if meta.len() > MAX_FILE_BYTES {
+    let limit = read_limit(path);
+    if meta.len() > limit {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "file too large",
+            format!(
+                "{path} is {} bytes, over the {limit}-byte read limit",
+                meta.len()
+            ),
         ));
     }
     let canon = std::fs::canonicalize(&abs).map(concordance_core::config::strip_verbatim)?;

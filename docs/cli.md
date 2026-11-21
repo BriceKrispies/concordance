@@ -37,7 +37,7 @@ roots is a TypeScript package.
 |---|---|
 | 0 | Success. With `--fail-on`, the gate passed. |
 | 1 | `scan` and `report`: the `--fail-on` gate failed. `proven` means at least one open structural contradiction or failing requirement test; `violated` also counts semantic contradictions that survived an adversarial challenge; `unverified` also counts every requirement of a started milestone that is not `verified`. `lint` has no `--fail-on`: it exits 1 when it has at least one error, and with `--strict` every warning counts as an error (info-level hints never do). |
-| 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`, `record` with no results file configured or a results file that does not exist, a `[repos]` entry that is not a git repository or whose `cited` revision does not exist). |
+| 2 | Usage or configuration error (bad flags, missing roots, invalid TOML, no persisted state for `report`, `record` with no results file configured or a results file that does not exist, a `[repos]` entry that is not a git repository or whose `cited` revision does not exist, a specification file over the 64 MiB read limit: `scan`, `lint` and `record` name it on stderr and exit 2 without a report). |
 | 3 | Runtime error (state database, I/O, cannot bind the port). |
 
 `unverified`, `planned`, `ambiguous`, `stale` and `undocumented` findings never fail the gate under `proven`

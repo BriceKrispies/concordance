@@ -19,6 +19,9 @@ document it is `path:line (source.jsonc:1320 krn-002): error[R1] message`.
 
 ## What is linted
 
+- **Size:** a specification file (Markdown, or a structured `.json`/`.jsonc` source) is read up to 64 MiB. A
+  larger one is a hard error: `scan`, `lint` and `record` name the file, its size and the limit on stderr and
+  exit 2. It is never skipped, so the lint cannot pass over it. Ordinary source files keep an 8 MiB read limit.
 - **Specification files:** the Markdown files under the spec roots whose authority is `normative`
   (set `[authority] normative = ["docs/spec/**"]`). Design documents are not linted. `[lint] spec`
   restricts this to the normative files matching its globs (repository-relative; default: all of them).
