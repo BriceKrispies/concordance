@@ -47,8 +47,9 @@ fn fixture_copy(tag: &str) -> PathBuf {
     let repo = temp_dir(tag).join("repo");
     copy_dir(&repo_root().join("fixtures/spec-lint"), &repo);
     let config = repo.join("concordance.toml");
-    let mut text = std::fs::read_to_string(&config).unwrap();
-    text.push_str("\ntest_results = [\"target/test-results/cargo-test.txt\"]\n");
+    // A top-level key, so it goes before the first table header.
+    let text = std::fs::read_to_string(&config).unwrap();
+    let text = format!("test_results = [\"target/test-results/cargo-test.txt\"]\n{text}");
     std::fs::write(config, text).unwrap();
     repo
 }
